@@ -1,154 +1,30 @@
-export type HouseId =
-  | 'brasador' | 'dorini' | 'ironvow' | 'suzumori'
-  | 'vaitama' | 'kaysoley' | 'agnivansh' | 'stillwater';
+// Shared engine types. Pure TypeScript: no Phaser, no DOM.
 
-export type Pillar = 'influence' | 'fear' | 'wealth';
-export const PILLARS: Pillar[] = ['influence', 'fear', 'wealth'];
+/** The four sprite facings (and door exits, NPC facings in maps). */
+export type Dir = 'up' | 'down' | 'left' | 'right';
+export const DIRS: readonly Dir[] = ['up', 'down', 'left', 'right'];
 
-export type TileType = 'court' | 'war' | 'trade';
-export const TILE_PILLAR: Record<TileType, Pillar> = { court: 'influence', war: 'fear', trade: 'wealth' };
+/** The four diagonal steps. */
+export type Diagonal = 'up-left' | 'up-right' | 'down-left' | 'down-right';
+export const DIAGONALS: readonly Diagonal[] = ['up-left', 'up-right', 'down-left', 'down-right'];
 
-export interface Pos { x: number; y: number }          // 0-indexed, x = column, y = row
-export type Dir = 'north' | 'south' | 'east' | 'west';
-export type Gen = 1 | 2 | 3 | 4;
+/**
+ * A movement direction: the player steps (and faces) in eight directions; sprites show four
+ * (grid.ts `spriteFacing`). The order keeps the first four equal to DIRS, so old save codes still read.
+ */
+export type Dir8 = Dir | Diagonal;
+export const DIRS8: readonly Dir8[] = [...DIRS, ...DIAGONALS];
 
-export type CardKind = 'hand' | 'instant';
+/** The two playable eras. Every map carries a layer set for each (guide 6.1). */
+export type Era = 'present' | 'echo';
+export const ERAS: readonly Era[] = ['present', 'echo'];
 
-// One player's seat. A seat keeps its id for the whole game.
-export interface PlayerState {
-  id: number;
-  name: string;
-  isBot: boolean;
-  house: HouseId;
-  gen: Gen;
-  hp: number;
-  maxHp: number;
-  pos: Pos | null;               // null once a Specter
-  specter: boolean;
-  res: Record<Pillar, number>;
-  hand: number[];                // card ids
-  grudges: number[];             // seat ids this family holds a Grudge against
-  kills: number;
-  reckonings: number;
-  handCardsPlayed: number;
-  visited: string[];             // squares ended on this life (Hidden Path)
-  lastScoredTile: string | null; // the last tile this character scored from (the next score must be elsewhere)
-  legacy: HouseId | null;        // Yaguana Legacy
-  extraPassive: HouseId | null;  // Yaguana IV
-  pendingExtraPassive: boolean;  // Yaguana IV waiting for a house to become a Specter
-  used: Record<string, number>;  // ability use counters (per game, per turn, per round keys)
-  mark: number | null;           // Brasador's La Marca target
-  extraTurn: boolean;            // Ironvow IV pending second turn
+/** Which era a map object belongs to: one of them, or both. */
+export type EraScope = Era | 'both';
+
+export interface Pos {
+  x: number;
+  y: number;
 }
 
-// Ongoing effects with an expiry. All are plain data so state stays serialisable.
-export type Expiry =
-  | { at: 'turnStart'; player: number; turns?: number }  // expires when this player's next turn starts;
-                                                         // turns: 2 = survives that one and ends at the start of the one after
-  | { at: 'turnEnd'; player: number; turns?: number }  // expires at the end of this player's current or next turn;
-                                                       // turns: 2 = survives the current turn and ends after the next
-  | { at: 'roundEnd'; round: number }
-  | { at: 'consumed' };                    // removed by the rule that uses it
-
-export type EffectKind =
-  | 'afterAttack' | 'newborn' | 'noInfluenceGain' | 'noAttack' | 'sabotage' | 'confusion' | 'forcedMarch' | 'hex'
-  | 'dreadBanner' | 'markedForDeath' | 'truce' | 'ceasefire' | 'shieldWall' | 'noFearGain'
-  | 'redirect' | 'mask' | 'handPublic';
-
-export interface Effect {
-  id: number;
-  kind: EffectKind;
-  owner: number;            // whose effect it is (the affected player, or the protected one)
-  by?: number;              // who caused it
-  other?: number;           // second party (truces)
-  square?: string;          // Shield Wall
-  house?: HouseId;          // Guaíza copy
-  level?: number;
-  cardId?: number;          // a lasting card: it stays face up until this effect ends, then it is discarded
-  armed: boolean;           // false = waiting for the owner's next turn to begin ("next turn" effects)
-  expiry: Expiry;
-}
-
-export interface LogEvent {
-  seq: number;
-  round: number;
-  text: string;
-  kind: string;             // for UI animation: 'move' | 'damage' | 'gain' | 'card' | 'death' | ...
-  player?: number;
-  target?: number;
-  amount?: number;
-  cards?: number[];
-  tag?: string;             // extra detail for the UI (e.g. the kind of attack)
-  visibleTo?: number[];     // hidden-information events (hand reveals); undefined = everyone
-}
-
-export interface TurnState {
-  player: number;
-  moved: boolean;
-  attacks: number;
-  attacksAllowed: number;
-  actions: number;          // your one action per turn: an attack or a Hand Card
-  actionsAllowed: number;
-  rollBonus: number;
-  aggressive: boolean;
-  damageDealt: number;
-  scoredTile: string | null;
-  stopDrawing: boolean;
-  extraTurn: boolean;
-  offered: boolean;          // made this turn's trade offer
-}
-
-export interface GameConfig {
-  suddenDeathRound: number;
-  challengeFirstStriker: 'claimant' | 'challenger';
-}
-
-export interface SeatSetup { name: string; isBot: boolean; house?: HouseId }
-
-export interface GameSetup {
-  seed: number;
-  seats: SeatSetup[];       // 2-8
-  firstPlayer?: number;     // seat id; random when omitted
-  config?: Partial<GameConfig>;
-}
-
-export interface GameState {
-  setup: GameSetup;
-  config: GameConfig;
-  players: PlayerState[];
-  order: number[];          // seat ids in turn order, starting with the first player
-  round: number;
-  turnNo: number;           // increments every turn, for once-per-turn limits
-  turn: TurnState | null;
-  drawPile: number[];       // last element = top
-  handDiscard: number[];    // the Hand Card discard pile; last element = top (most recent)
-  instantDiscard: number[]; // the Instant discard pile (the Specter's pick); last element = top
-  removed: number[];        // Specter cards, gone for good
-  inPlay: number[];         // cards currently resolving
-  dying: { victim: number; killer: number | null }[];  // deaths waiting to be resolved, in order
-  effects: Effect[];
-  log: LogEvent[];
-  seq: number;
-  lastKill: { killer: number; victim: number } | null;
-  housesLost: HouseId[];    // houses that have lost at least one character
-  winner: number | null;
-  endReason: string | null;
-}
-
-// --- Decisions: the engine pauses on one of these until the named player answers with an option index.
-
-export type DecisionKind =
-  | 'turn' | 'move' | 'player' | 'card' | 'block' | 'counterspell' | 'pool' | 'direction'
-  | 'square' | 'legacy' | 'challenge' | 'confirm' | 'specter' | 'discard' | 'reaction' | 'trade';
-
-export interface Option<V = unknown> { label: string; value: V }
-
-export interface Decision<V = unknown> {
-  player: number;
-  kind: DecisionKind;
-  prompt: string;
-  options: Option<V>[];
-  context?: Record<string, unknown>;   // extra info for bots and UI (e.g. the attack being blocked)
-}
-
-export type Flow<T = void> = Generator<Decision, T, number>;
+export type FlagValue = boolean | number | string;

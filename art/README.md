@@ -1,14 +1,14 @@
-# Art drop folder
+# Drop real art here
 
-Put finished paintings here, named exactly like this. PNG, JPG/JPEG or WebP all work, straight from the AI tool: no need to
-convert. The finished print files always come out as PNG.
+Each PNG replaces one placeholder; anything missing keeps its placeholder. Rebuild (`npm run build`)
+after adding files. Names, sizes and the palette: `../../docs/quest/ART-STYLE.md` and
+`src/assets.config.ts` (`ART_FILES`).
 
-| Folder | File name | Size |
-|---|---|---|
-| `cards/` | `card-<number>.png`, e.g. `card-1.png` (numbers from docs/art/CARD-PROMPTS.md) | 1000 × 1400 or larger, 5:7 |
-| `characters/` | `portrait-<house>-<generation>.png`, e.g. `portrait-brasador-1.png` | 1050 × 1800 or larger, 7:12 |
-| `crests/` | `crest-<house>.png` (optional; the house initial is used until then) | square, 512 × 512 or larger |
+- `characters/<look>.png`: walk sheet, 3 columns x 4 rows of equal cells (24 x 32, a 72 x 128 sheet).
+  Gemini sheets are converted with `../../scripts/quest-sprite.py` (options in ART-STYLE.md).
+  Rows: down, left, right, up. Columns: standing, step A, step B. Transparent background.
+- `portraits/<portrait>.png`: 48 x 48 dialogue portrait (neutral face).
+- `tiles/<tile>.png`: 16 x 16 tile, named after its `TILESET` entry.
+- `objects/<kind>.png`: a large object drawing, named after its `OBJECT_ART` entry.
 
-Paintings only: no border, title or text. `npm run print` adds the overlay, category symbol and all card text,
-and writes print-ready fronts to `print/` (game cards 1000 × 1360, characters 1050 × 1752, MakePlayingCards size
-with bleed). It also makes small web copies so the app shows the same art.
+If you use art you did not make, add it to `../assets/CREDITS.md` and `../src/data/credits.ts`.

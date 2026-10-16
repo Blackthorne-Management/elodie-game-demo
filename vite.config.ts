@@ -1,47 +1,14 @@
 import { defineConfig } from 'vite';
-import { configDefaults } from 'vitest/config';
-import react from '@vitejs/plugin-react';
-import { VitePWA } from 'vite-plugin-pwa';
-import { execSync } from 'node:child_process';
 
-// Which build this is: Netlify's commit, else the local git commit. Saved games record it so a game is
-// only ever replayed on the code it was played on.
-function buildId(): string {
-  if (process.env.COMMIT_REF) return process.env.COMMIT_REF.slice(0, 7);
-  try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return 'dev'; }
-}
-
+// The quest is a self-contained app. A relative base lets the built files live under any path
+// (for example a future /quest route) without changes.
 export default defineConfig({
-  base: process.env.BASE_PATH ?? '/',
-  define: { __BUILD__: JSON.stringify(buildId()) },
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
-      manifest: {
-        name: "Bloodlines: The Race to Elodie's Grace",
-        short_name: 'Bloodlines',
-        description: "Eight houses race to win Elodie's Throne.",
-        display: 'standalone',
-        orientation: 'portrait',
-        start_url: '.',
-        scope: '.',
-        background_color: '#1b1418',
-        theme_color: '#5a1620',
-        icons: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webp}'], globIgnores: ['server/**', 'quest/**'],
-        // The quest (a separate app at /quest/) is never answered with the board game's page.
-        navigateFallbackDenylist: [/^\/quest/],
-      },
-    }),
-  ],
-  // The quest (quest/) is a separate project with its own tests.
-  test: { exclude: [...configDefaults.exclude, 'quest/**'] },
+  base: './',
+  build: {
+    outDir: 'dist',
+    // Phaser is one large chunk; that is expected.
+    chunkSizeWarningLimit: 2000,
+  },
+  server: { port: 5180 },
+  preview: { port: 4180 },
 });

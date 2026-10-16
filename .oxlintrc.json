@@ -1,24 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "react",
-    "typescript",
-    "oxc"
-  ],
+  "plugins": ["typescript", "oxc", "unicorn"],
   "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": [
-      "warn",
-      {
-        "allowConstantExport": true
-      }
-    ],
     "require-yield": "off"
   },
-  "ignorePatterns": [
-    "public/server/**",
-    "supabase/**",
-    "dist/**",
-    "quest/**"
-  ]
+  "ignorePatterns": ["dist/**", "node_modules/**"]
 }

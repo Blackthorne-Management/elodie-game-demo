@@ -1,54 +1,67 @@
-import { CONTENT } from '../src/data';
-import { Game } from '../src/engine/game';
-import { Runner } from '../src/engine/runner';
-import type { Decision, Flow, GameSetup, HouseId } from '../src/engine/types';
-import { makeRng } from '../src/engine/rng';
+// Small builders for test maps.
 
-export function setup(n: number, seed = 1, houses?: HouseId[]): GameSetup {
+import type { TiledMap, TiledObject, TiledLayer } from '../src/engine/tiledMap.ts';
+
+export const LAYER_NAMES = ['ground_present', 'deco_present', 'ground_echo', 'deco_echo', 'above', 'collide_present', 'collide_echo'];
+
+let nextId = 1;
+
+export function obj(name: string, x: number, y: number, props: Record<string, string | boolean> = {}, w = 1, h = 1): TiledObject {
   return {
-    seed,
-    firstPlayer: 0,
-    seats: Array.from({ length: n }, (_, i) => ({ name: `P${i}`, isBot: true, house: houses?.[i] })),
+    id: nextId++,
+    name,
+    x: x * 16,
+    y: y * 16,
+    width: w * 16,
+    height: h * 16,
+    properties: Object.entries(props).map(([n, value]) => ({ name: n, type: typeof value === 'boolean' ? 'bool' : 'string', value })),
   };
 }
 
-export const newGame = (n: number, houses?: HouseId[], seed = 1) => new Game(setup(n, seed, houses), CONTENT);
-
-// Run a flow to completion, answering each decision with `pick` (default: first option).
-export function drive<T>(flow: Flow<T>, pick: (d: Decision) => number = () => 0): T {
-  let r = flow.next();
-  let guard = 0;
-  while (!r.done) {
-    if (guard++ > 5000) throw new Error('drive: too many decisions');
-    r = flow.next(pick(r.value));
-  }
-  return r.value;
+export interface MapSpec {
+  width?: number;
+  height?: number;
+  /** Rows of '.' (open) and '#' (blocked) for the present collision layer. */
+  present?: string[];
+  echo?: string[];
+  objects?: Partial<Record<'npcs' | 'doors' | 'triggers' | 'spawns' | 'echo_zones' | 'anchors' | 'puzzle_objects' | 'encounters', TiledObject[]>>;
 }
 
-// Answer by option label (first match), falling back to the first option.
-export const byLabel = (...labels: string[]) => (d: Decision) => {
-  for (const l of labels) {
-    const i = d.options.findIndex(o => o.label === l || o.label.startsWith(l));
-    if (i >= 0) return i;
-  }
-  return 0;
-};
+function collide(rows: string[] | undefined, w: number, h: number): number[] {
+  if (!rows) return Array.from({ length: w * h }, () => 0);
+  return rows.join('').split('').map((c) => (c === '#' ? 16 : 0));
+}
 
-export function randomGame(n: number, seed: number, onStep?: (r: Runner) => void) {
-  const r = new Runner(setup(n, seed), CONTENT);
-  const rng = makeRng(seed * 7919);
-  let steps = 0;
-  while (!r.over) {
-    const d = r.pending!;
-    // Random choices, but end the turn a third of the time so games keep moving.
-    let i = Math.floor(rng() * d.options.length);
-    if (d.kind === 'turn') {
-      const end = d.options.findIndex(o => (o.value as { type: string }).type === 'end');
-      if (end >= 0 && rng() < 0.35) i = end;
-    }
-    r.answer(i);
-    onStep?.(r);
-    if (++steps > 200_000) throw new Error('game did not finish');
-  }
-  return r;
+export function makeMap(spec: MapSpec = {}): TiledMap {
+  const width = spec.width ?? spec.present?.[0]?.length ?? 5;
+  const height = spec.height ?? spec.present?.length ?? 5;
+  const blank = () => Array.from({ length: width * height }, () => 1);
+  const tile = (name: string, data: number[]): TiledLayer => ({ type: 'tilelayer', name, width, height, data });
+  const objects = spec.objects ?? {};
+  return {
+    width,
+    height,
+    tilewidth: 16,
+    tileheight: 16,
+    infinite: false,
+    orientation: 'orthogonal',
+    tilesets: [{ firstgid: 1, name: 'placeholder', tilewidth: 16, tileheight: 16, tilecount: 24, columns: 8 }],
+    layers: [
+      tile('ground_present', blank()),
+      tile('deco_present', blank().map(() => 0)),
+      tile('ground_echo', blank()),
+      tile('deco_echo', blank().map(() => 0)),
+      tile('above', blank().map(() => 0)),
+      tile('collide_present', collide(spec.present, width, height)),
+      tile('collide_echo', collide(spec.echo ?? spec.present, width, height)),
+      { type: 'objectgroup', name: 'npcs', objects: objects.npcs ?? [] },
+      { type: 'objectgroup', name: 'doors', objects: objects.doors ?? [] },
+      { type: 'objectgroup', name: 'triggers', objects: objects.triggers ?? [] },
+      { type: 'objectgroup', name: 'spawns', objects: objects.spawns ?? [obj('start', 0, 0)] },
+      { type: 'objectgroup', name: 'echo_zones', objects: objects.echo_zones ?? [] },
+      { type: 'objectgroup', name: 'anchors', objects: objects.anchors ?? [] },
+      { type: 'objectgroup', name: 'puzzle_objects', objects: objects.puzzle_objects ?? [] },
+      ...(objects.encounters ? [{ type: 'objectgroup' as const, name: 'encounters', objects: objects.encounters }] : []),
+    ],
+  };
 }

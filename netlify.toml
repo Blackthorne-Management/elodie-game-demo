@@ -1,25 +1,13 @@
-# Netlify builds and publishes the game on every push.
-# Tests run first, so a broken change never reaches the phone.
+# The Chapter 1 demo of the quest, on its own (owner decision, Oct 16: this repository holds only the quest).
+# Tests run first, so a broken change never reaches a tester. A commit with [skip netlify] does not build.
 [build]
-  # The quest (quest/, a separate project) is built after the board game and served at /quest/.
-  command = "npm test && npm run build && cd quest && npm ci && npm test && npm run build && rm -rf ../dist/quest && cp -r dist ../dist/quest"
+  command = "npm ci && npm test && npm run build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "22"
 
-# Let app updates reach the phone promptly.
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "no-cache"
 [[headers]]
   for = "/manifest.webmanifest"
   [headers.values]
     Content-Type = "application/manifest+json"
-
-# The quest needs its trailing slash (its files are linked relative to the folder).
-[[redirects]]
-  from = "/quest"
-  to = "/quest/"
-  status = 301

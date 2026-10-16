@@ -1,1305 +1,542 @@
-// The rules engine. A game is one long generator: it yields a Decision whenever a player must
-// choose, and resumes with the index of the chosen option. Everything here is deterministic
-// given the setup (with its seed) and the list of answers.
-import type {
-  Decision, DecisionKind, Dir, Effect, EffectKind, Expiry, Flow, GameConfig, GameSetup, GameState,
-  HouseId, LogEvent, Option, Pillar, PlayerState, Pos,
-} from './types';
-import { PILLARS, TILE_PILLAR } from './types';
-import type { Ability, AttackInfo, CardDef, Content, HouseDef, PassiveHooks, ReactionKind } from './content';
-import type { Rng } from './rng';
-import { makeRng, rollD6, shuffle } from './rng';
-import {
-  DIR_NAMES, adjacent, inBoard, inLine, key, label, manhattan, onThrone, roomToEdge, samePos, squaresWithin, step, throneDistance,
-} from './board';
-import {
-  ATTACK_ENDS_TURN, CHALLENGE_FIRST_STRIKER, OPENING, TRADE, NEWBORN_PROTECTION, THRONE_SANCTUARY, HAND_SIZE, MAX_FIGHT_BLOWS, SUDDEN_DEATH_ROUND, THRESHOLDS, TUNING,
-} from '../config';
+// The game's rules in one place, shared by the Phaser field scene (which animates them) and the
+// headless simulator (which replays puzzle solutions in tests): stepping, doors, triggers, talking,
+// using puzzle objects, the Echo swap with anchors, dialogue, and end-of-act cards. Every action
+// returns a list of effects for the caller to show. Pure TypeScript: no Phaser, no DOM.
 
-export class GameOver extends Error {}
-// Effects on a character that end when that character dies.
-const ENDS_WITH_CHARACTER: EffectKind[] = [
-  'afterAttack', 'hex', 'markedForDeath', 'dreadBanner', 'confusion', 'forcedMarch', 'noFearGain', 'sabotage', 'noInfluenceGain', 'shieldWall',
-];
-export const REDIRECT_MOVE = 1;
-export const REDIRECT_TARGET = 2;
-export class EndTurn extends Error {}
-// Thrown when Interference cancels a card after its target was named; caught where the card was played.
-class CardCancelled extends Error {}
+import { encounterFlag } from './encounterFlags.ts';
+import { ENCOUNTER_CHANCE_PER_STEP, ENCOUNTER_GRACE_STEPS } from '../config.ts';
+import { evaluate, flagsIn } from './conditions.ts';
+import { debateScript } from './debate.ts';
+import { cardFlag, type CardDef, type EncounterGroup, type EncounterTable, type GameContent } from './content.ts';
+import { DialogueRunner, type DialogueScript, type DialogueView } from './dialogue.ts';
+import { FlagStore, type FlagSnapshot } from './flags.ts';
+import { Rng } from './rng.ts';
+import { components, doorArrival, doorAt, facingTiles, inBounds, isDiagonal, samePos, stepFrom } from './grid.ts';
+import type { GameState } from './state.ts';
+import { rectContains, type Door, type GameMap, type NpcPlacement, type PuzzleObject, type Trigger } from './tiledMap.ts';
+import type { Dir8, Era, Pos } from './types.ts';
+import { ECHO_FLAG_PREFIX, activeNpcs, activeObjects, activeTriggers, checkSwap, isOpen, npcBlocks, type SwapCheck } from './world.ts';
 
-export type TurnAction =
-  | { type: 'roll' }
-  | { type: 'attack'; target: number }
-  | { type: 'card'; card: number }
-  | { type: 'ability'; id: string }
-  | { type: 'claim' }
-  | { type: 'trade' }
-  | { type: 'end' };
+/** Flags remembering that the player has used or looked at a puzzle object (the use marker goes away). */
+export const SEEN_FLAG_PREFIX = 'seen.';
 
-export class Game {
-  s: GameState;
-  rng: Rng;
-  content: Content;
-  // A card waiting for its target to be named before anyone may Interfere (rules-decisions 79).
-  awaitingTarget: { player: number; card: number } | null = null;
+export function seenFlag(mapId: string, objectId: string): string {
+  return `${SEEN_FLAG_PREFIX}${mapId}.${objectId}`;
+}
 
-  constructor(setup: GameSetup, content: Content) {
-    if (setup.seats.length < 2 || setup.seats.length > 8) throw new Error('Bloodlines needs 2-8 players');
+/** What the player is facing, with the name its label shows. */
+export type Target =
+  | { kind: 'npc'; name: string; npc: NpcPlacement }
+  | { kind: 'object'; name: string; object: PuzzleObject }
+  | { kind: 'door'; name: string; door: Door };
+
+/**
+ * An interaction marker: `talk` over a person with something new to say (talking would change a
+ * flag), `use` over an object not used yet or with something left to do. `pos` is the tile the marker
+ * floats over (x may be a half tile, centred over a wide object).
+ */
+export interface Marker {
+  kind: 'talk' | 'use';
+  id: string;
+  pos: Pos;
+}
+
+/** How deep the marker check follows dialogue choices. */
+const NEWS_CHOICE_DEPTH = 3;
+
+export type Mode = 'field' | 'dialogue' | 'card';
+
+export type Effect =
+  /** The player is on another map now (the scene rebuilds). */
+  | { kind: 'map' }
+  /** The Echo swap happened. */
+  | { kind: 'era'; era: Era }
+  | { kind: 'toast'; text: string }
+  /** A refused swap or step (soft sound plus the message). */
+  | { kind: 'refused'; text: string }
+  /** Autosave now. */
+  | { kind: 'save' }
+  /** Flags may have changed: redraw NPCs and puzzle objects. */
+  | { kind: 'sync' }
+  /** A dialogue started (read it with `view()`). */
+  | { kind: 'dialogue' }
+  /** The player started talking to this NPC (the scene turns it to face the player). */
+  | { kind: 'talk'; npc: NpcPlacement }
+  | { kind: 'card'; card: CardDef }
+  /** Back from the memory with anchors newly set: these present objects changed (the scene makes them glow). */
+  | { kind: 'changed'; objects: string[]; flags: string[] }
+  /** An ambush in a wild section (the scene flashes; the fight follows as a dialogue until Phase 3). */
+  | { kind: 'encounter'; table: string; group: string }
+  /** A vendor's greeting ended: open their shop. */
+  | { kind: 'shop'; shop: string }
+  /** A dialogue named a battle (flag `battle.next`): the scene runs it (data/battles.ts). */
+  | { kind: 'battle'; battle: string };
+
+export type StepAttempt =
+  | { ok: true; to: Pos }
+  | { ok: false; reason: 'busy' | 'bounds' | 'blocked' | 'occupied' | 'door_in_echo' | 'corner' }
+  /** A door whose `if` does not hold yet: the caller plays its `closed` dialogue (closedDoor). */
+  | { ok: false; reason: 'door_closed'; door: Door };
+
+export class GameLogic {
+  readonly maps: Readonly<Record<string, GameMap>>;
+  readonly content: GameContent;
+  state: GameState;
+  mode: Mode = 'field';
+  card: CardDef | null = null;
+  private runner: DialogueRunner | null = null;
+  private afterDialogue: Effect[] = [];
+  /** Anchor flags already set when the player stepped into the memory (null: not known, e.g. loaded in the Echo). */
+  private anchorsAtEntry: Set<string> | null = null;
+  /** Random encounters: the dice, and steps walked in a wild zone since arriving or the last fight. */
+  private readonly rng: Rng;
+  private wildSteps = 0;
+
+  constructor(maps: Readonly<Record<string, GameMap>>, content: GameContent, state: GameState, seed = 1) {
+    this.maps = maps;
     this.content = content;
-    this.rng = makeRng(setup.seed);
-    const config: GameConfig = {
-      suddenDeathRound: SUDDEN_DEATH_ROUND,
-      challengeFirstStriker: CHALLENGE_FIRST_STRIKER,
-      ...setup.config,
-    };
-    this.s = {
-      setup, config, players: [], order: [], round: 0, turnNo: 0, turn: null,
-      drawPile: [], handDiscard: [], instantDiscard: [], removed: [], inPlay: [], dying: [], effects: [], log: [], seq: 0,
-      lastKill: null, housesLost: [], winner: null, endReason: null,
-    };
-    this.setup();
+    this.state = state;
+    this.rng = new Rng(seed);
   }
 
-  // ---------------------------------------------------------------- setup (Section 3)
+  /** Drop any running dialogue or card (after a load or a new game). */
+  reset(state: GameState = this.state): void {
+    this.state = state;
+    this.mode = 'field';
+    this.card = null;
+    this.runner = null;
+    this.afterDialogue = [];
+    this.anchorsAtEntry = null;
+    this.wildSteps = 0;
+  }
 
-  private setup() {
-    const { seats } = this.s.setup;
-    // House lottery: preset houses stay, the rest are drawn blind.
-    const taken = new Set(seats.map(s => s.house).filter(Boolean));
-    const pool = shuffle((Object.keys(this.content.houses) as HouseId[]).filter(h => !taken.has(h)), this.rng);
-    this.s.players = seats.map((seat, id) => {
-      const house = seat.house ?? pool.pop()!;
-      const def = this.content.houses[house];
-      return {
-        id, name: seat.name, isBot: seat.isBot, house, gen: 1, hp: def.hp[0], maxHp: def.hp[0],
-        pos: { ...def.home }, specter: false, res: { influence: 0, fear: 0, wealth: 0 },
-        hand: [], grudges: [], kills: 0, reckonings: 0, handCardsPlayed: 0, visited: [key(def.home)],
-        lastScoredTile: null, legacy: null, extraPassive: null, pendingExtraPassive: false,
-        used: {}, mark: null, extraTurn: false,
-      };
-    });
-    // Yaguana's Ancestor's Voice: a Legacy from the start, drawn blind from the houses not at the table (any other
-    // house when all eight play), rules-decisions 83.
-    for (const p of this.s.players) {
-      if (!this.content.houses[p.house].startsWithLegacy) continue;
-      const all = Object.keys(this.content.houses) as HouseId[];
-      const away = all.filter(h => !this.s.players.some(o => o.house === h));
-      const pool = away.length ? away : all.filter(h => h !== p.house);
-      p.legacy = pool[Math.floor(this.rng() * pool.length)];
-      this.log(`${p.name} hears the Voice of the Opía: the ${this.content.houses[p.legacy].passiveName} Legacy of ${this.content.houses[p.legacy].name}.`, 'ability', { player: p.id });
-    }
-    const first = this.s.setup.firstPlayer ?? Math.floor(this.rng() * seats.length);
-    this.s.order = seats.map((_, i) => (first + i) % seats.length);
+  get map(): GameMap {
+    const map = this.maps[this.state.player.mapId];
+    if (!map) throw new Error(`Unknown map ${this.state.player.mapId}`);
+    return map;
+  }
 
-    this.s.drawPile = shuffle(this.content.cards.map(c => c.id), this.rng);
-    // Starting hands are always 3 Hand Cards: an Instant drawn here goes back to a random point.
-    for (const p of this.s.players) {
-      while (p.hand.length < HAND_SIZE) {
-        const c = this.s.drawPile.pop()!;
-        if (this.card(c).kind === 'instant') {
-          const at = Math.floor(this.rng() * (this.s.drawPile.length + 1));
-          this.s.drawPile.splice(at, 0, c);
-        } else {
-          p.hand.push(c);
-        }
+  get era(): Era {
+    return this.state.player.era;
+  }
+
+  npcs(era: Era = this.era): NpcPlacement[] {
+    return activeNpcs(this.map, era, this.state.flags).filter((n) => !!this.content.npcs[n.npc]);
+  }
+
+  objects(era: Era = this.era): PuzzleObject[] {
+    return activeObjects(this.map, era, this.state.flags);
+  }
+
+  isOpen(pos: Pos, era: Era = this.era): boolean {
+    return isOpen(this.map, era, pos, this.state.flags);
+  }
+
+  /** Whether stepping onto this tile would fire a trigger (route planning avoids them). */
+  wouldFire(pos: Pos): boolean {
+    return activeTriggers(this.map, this.era, this.state.flags).some(
+      (t) => !t.onEnter && rectContains(t.area, pos) && this.canFire(t),
+    );
+  }
+
+  // ---- Field ---------------------------------------------------------------------------------
+
+  /**
+   * Face `dir` and say whether a step that way is allowed (the caller animates, then calls finishStep).
+   * Diagonal steps follow grid.ts `tryMove`: the two straight neighbours must be open too (no corner
+   * cutting). With `slide` (held input: the stick, keys, the scene and the simulator), a refused
+   * diagonal slides along the wall instead: the horizontal part, else the vertical part; the player
+   * then faces the way they actually step.
+   */
+  tryStep(dir: Dir8, slide = false): StepAttempt {
+    if (this.mode !== 'field') return { ok: false, reason: 'busy' };
+    const p = this.state.player;
+    p.facing = dir;
+    const attempt = this.checkStep(p.pos, dir);
+    if (attempt.ok || !slide || !isDiagonal(dir)) return attempt;
+    for (const part of components(dir)) {
+      const along = this.checkStep(p.pos, part);
+      if (along.ok) {
+        p.facing = part;
+        return along;
       }
     }
-    this.log(`The houses take their seats. ${this.p(first).name} goes first.`, 'setup');
+    return attempt;
   }
 
-  // ---------------------------------------------------------------- lookups
-
-  p(id: number) { return this.s.players[id]; }
-  card(id: number): CardDef { return this.content.cards[id - 1]; }
-  house(p: PlayerState | HouseId): HouseDef { return this.content.houses[typeof p === 'string' ? p : p.house]; }
-  living() { return this.s.players.filter(p => !p.specter); }
-  others(p: PlayerState) { return this.living().filter(o => o.id !== p.id); }
-  active(): PlayerState | null { return this.s.turn ? this.p(this.s.turn.player) : null; }
-  isActive(p: PlayerState) { return this.s.turn?.player === p.id; }
-  total(p: PlayerState) { return p.res.influence + p.res.fear + p.res.wealth; }
-  playersOn(pos: Pos) { return this.living().filter(o => o.pos && samePos(o.pos, pos)); }
-
-  // Seats in turn order starting after `p` (the player "to the left" is the first one).
-  seatsAfter(p: PlayerState, includeSpecters = false): PlayerState[] {
-    const i = this.s.order.indexOf(p.id);
-    const out: PlayerState[] = [];
-    for (let k = 1; k < this.s.order.length; k++) {
-      const o = this.p(this.s.order[(i + k) % this.s.order.length]);
-      if (includeSpecters || !o.specter) out.push(o);
-    }
-    return out;
-  }
-  leftOf(p: PlayerState) { return this.seatsAfter(p)[0] ?? null; }
-  rightOf(p: PlayerState) { return this.seatsAfter(p).at(-1) ?? null; }
-
-  // Make sure the draw pile has cards without drawing: when it runs out, both discard piles (Hand Cards and
-  // Instants) are shuffled together into a new one (rules-decisions 84). If both are empty, nothing is drawn.
-  ensureDrawPile() {
-    if (this.s.drawPile.length || (!this.s.handDiscard.length && !this.s.instantDiscard.length)) return;
-    this.s.drawPile = shuffle([...this.s.handDiscard, ...this.s.instantDiscard], this.rng);
-    this.s.handDiscard = [];
-    this.s.instantDiscard = [];
-    this.log('The deck runs dry; both discard piles are shuffled into a new deck.', 'deck');
-  }
-  // A card goes to its own discard pile: Hand Cards to the Hand Card pile, Instants to the Instant pile.
-  // `bottom` puts it underneath (hand-limit discards).
-  toDiscard(c: number, bottom = false) {
-    const pile = this.card(c).kind === 'instant' ? this.s.instantDiscard : this.s.handDiscard;
-    if (bottom) pile.unshift(c); else pile.push(c);
-  }
-  // A played card is discarded once it has resolved, unless it is a lasting card whose effect is still running:
-  // it stays face up until that effect ends (removeEffect discards it then).
-  settleCard(c: number) {
-    if (!this.s.effects.some(e => e.cardId === c)) this.toDiscard(c);
-  }
-
-  roll(p: PlayerState | null, why: string): number {
-    const n = rollD6(this.rng);
-    this.log(`${why}: ${p ? `${p.name} rolls` : 'rolled'} a ${n}.`, 'roll', { player: p?.id, amount: n });
-    return n;
-  }
-
-  tilesOfType(type: HouseDef['tileType']): Pos[] {
-    return Object.values(this.content.houses).filter(h => h.tileType === type).map(h => h.home);
-  }
-  onTileType(p: PlayerState, type: HouseDef['tileType']) {
-    const t = p.pos && this.tileAt(p.pos);
-    return !!t && t.house.tileType === type;
-  }
-  adjacentTo(p: PlayerState): PlayerState[] {
-    return p.pos ? this.others(p).filter(o => o.pos && adjacent(p.pos!, o.pos)) : [];
-  }
-  // The single player with the highest (or lowest) score, or null on a tie.
-  uniqueBest(score: (p: PlayerState) => number, highest = true, field = this.living()): PlayerState | null {
-    if (!field.length) return null;
-    const vals = field.map(score);
-    const top = highest ? Math.max(...vals) : Math.min(...vals);
-    const at = field.filter((_, i) => vals[i] === top);
-    return at.length === 1 ? at[0] : null;
-  }
-  allBest(score: (p: PlayerState) => number, highest = true, field = this.living()): PlayerState[] {
-    if (!field.length) return [];
-    const vals = field.map(score);
-    const top = highest ? Math.max(...vals) : Math.min(...vals);
-    return field.filter((_, i) => vals[i] === top);
-  }
-  randomItem<T>(items: T[]): T { return items[Math.floor(this.rng() * items.length)]; }
-
-  tileAt(pos: Pos): { house: HouseDef } | null {
-    const h = Object.values(this.content.houses).find(d => samePos(d.home, pos));
-    return h ? { house: h } : null;
-  }
-
-  // ---------------------------------------------------------------- log
-
-  log(text: string, kind: string, extra: Partial<LogEvent> = {}) {
-    this.s.log.push({ seq: ++this.s.seq, round: this.s.round, text, kind, ...extra });
-  }
-  reveal(p: PlayerState, to: number[] | 'all', why: string) {
-    const names = p.hand.map(c => this.card(c).name).join(', ') || 'no cards';
-    this.log(`${why}: ${p.name}'s hand is ${names}.`, 'reveal', {
-      player: p.id, cards: [...p.hand], visibleTo: to === 'all' ? undefined : [...to, p.id], tag: 'hand',
-    });
-  }
-
-  // ---------------------------------------------------------------- decisions
-
-  *ask<V>(player: PlayerState, kind: DecisionKind, prompt: string, options: Option<V>[], context?: Record<string, unknown>): Flow<V> {
-    if (options.length === 0) throw new Error(`No options for ${kind}: ${prompt}`);
-    if (options.length === 1 && kind !== 'turn') return options[0].value;
-    const d: Decision<V> = { player: player.id, kind, prompt, options, context };
-    const i = yield d as Decision;
-    if (!Number.isInteger(i) || i < 0 || i >= options.length) throw new Error(`Invalid answer ${i} for ${kind}`);
-    return options[i].value;
-  }
-
-  *confirm(player: PlayerState, prompt: string, yes = 'Yes', no = 'No'): Flow<boolean> {
-    return yield* this.ask(player, 'confirm', prompt, [{ label: yes, value: true }, { label: no, value: false }]);
-  }
-
-  *choosePlayer(chooser: PlayerState, candidates: PlayerState[], prompt: string, context?: Record<string, unknown>): Flow<PlayerState | null> {
-    if (!candidates.length) return null;
-    const id = yield* this.ask(chooser, 'player', prompt, candidates.map(c => ({ label: c.name, value: c.id })), context);
-    // The first player named by a card that names a target: now others may Interfere, knowing who it's aimed at.
-    const w = this.awaitingTarget;
-    if (w) {
-      this.awaitingTarget = null;
-      if (yield* this.interfere(this.p(w.player), w.card, this.p(id))) throw new CardCancelled();
-    }
-    return this.p(id);
-  }
-
-  *choosePillar(chooser: PlayerState, prompt: string, pillars: Pillar[] = PILLARS, context?: Record<string, unknown>): Flow<Pillar | null> {
-    if (!pillars.length) return null;
-    return yield* this.ask(chooser, 'pool', prompt, pillars.map(x => ({ label: cap(x), value: x })), context);
-  }
-
-  // A Hand Card (or ability) choosing a target. Handles Suzumori's Ayatsuri, and Counterspell and Turnabout for the
-  // cards marked as Target cards (rules-decisions 84).
-  // Returns null if the effect on that target was negated.
-  *targetPlayer(user: PlayerState, candidates: PlayerState[], prompt: string, card?: CardDef): Flow<PlayerState | null> {
-    if (!candidates.length) return null;
-    const chooser = this.redirectChooser(user, REDIRECT_TARGET) ?? user;
-    const target = yield* this.choosePlayer(chooser, candidates, prompt, { card: card?.id, user: user.id });
-    if (!target) return null;
-    if (card?.targets && target.id !== user.id) {
-      const cs = target.hand.find(c => this.card(c).counterspell);
-      if (cs && (yield* this.confirm(target, `${user.name} plays ${card.name} on you. Use Counterspell to negate it?`, 'Counterspell', 'Let it happen'))) {
-        this.discardFromHand(target, cs);
-        this.queueRefill(target);
-        this.log(`${target.name} counters ${card.name}!`, 'block', { player: target.id, target: user.id });
-        return null;
-      }
-      // Turnabout: the card falls on another player of the target's choice instead.
-      const alts = candidates.filter(o => o.id !== target.id);
-      const tb = alts.length ? target.hand.find(c => this.card(c).reaction === 'turnabout') : undefined;
-      if (tb !== undefined) {
-        const play = yield* this.ask(target, 'reaction', `${user.name} plays ${card.name} on you. Respond?`,
-          [{ label: 'Let it happen', value: false }, { label: `Play ${this.card(tb).name}`, value: true }],
-          { card: tb, reaction: 'turnabout', actor: user.id, played: card.id });
-        if (play) {
-          this.discardFromHand(target, tb);
-          this.queueRefill(target);
-          this.log(`${target.name} answers with ${this.card(tb).name}!`, 'block', { player: target.id, target: user.id, cards: [tb] });
-          const next = yield* this.choosePlayer(target, alts, `Turnabout: who does ${card.name} fall on instead?`, { card: card.id, user: user.id, turnabout: true });
-          if (next) this.log(`${card.name} turns toward ${next.name}.`, 'info', { player: next.id });
-          return next;
-        }
+  private checkStep(from: Pos, dir: Dir8): StepAttempt {
+    const to = stepFrom(from, dir);
+    if (!inBounds(this.map, to)) return { ok: false, reason: 'bounds' };
+    if (this.era === 'echo' && doorAt(this.map, to)) return { ok: false, reason: 'door_in_echo' };
+    const door = doorAt(this.map, to);
+    if (door && !this.doorOpen(door)) return { ok: false, reason: 'door_closed', door };
+    if (!this.isOpen(to)) return { ok: false, reason: 'blocked' };
+    if (npcBlocks(this.map, this.era, to, this.state.flags)) return { ok: false, reason: 'occupied' };
+    if (isDiagonal(dir)) {
+      for (const part of components(dir)) {
+        const side = stepFrom(from, part);
+        if (!this.isOpen(side) || npcBlocks(this.map, this.era, side, this.state.flags)) return { ok: false, reason: 'corner' };
       }
     }
-    return target;
+    return { ok: true, to };
   }
 
-  // A reaction window: other players holding a matching Reaction card may play it, asked in seat order after
-  // `actor`. The first one played closes the window. A Reaction can't be answered by another Reaction or a
-  // Counterspell, but the attack an Ambush makes can be Blocked like any attack.
-  *reaction(kinds: ReactionKind[], actor: PlayerState, what: string, context: Record<string, unknown> = {},
-    may: (o: PlayerState) => boolean = () => true): Flow<{ player: PlayerState; card: CardDef } | null> {
-    for (const o of this.seatsAfter(actor)) {
-      if (!may(o)) continue;
-      const held = o.hand.filter(c => kinds.includes(this.card(c).reaction!));
-      for (const c of held) {
-        const def = this.card(c);
-        const play = yield* this.ask(o, 'reaction', `${what} Respond?`,
-          [{ label: 'Let it happen', value: false }, { label: `Play ${def.name}`, value: true }],
-          { ...context, card: c, reaction: def.reaction, actor: actor.id });
-        if (!play) continue;
-        this.discardFromHand(o, c);
-        this.queueRefill(o);
-        this.log(`${o.name} answers with ${def.name}!`, 'block', { player: o.id, target: actor.id, cards: [c] });
-        return { player: o, card: def };
+  /** Whether a door lets the player through now (a door with no `if` always does). */
+  doorOpen(door: Door): boolean {
+    return !door.if || evaluate(door.if, this.state.flags);
+  }
+
+  /** Walked into a closed door: play its `closed` dialogue (someone says why not). */
+  closedDoor(door: Door): Effect[] {
+    if (this.mode !== 'field' || this.doorOpen(door) || !door.closed) return [];
+    return this.startDialogue(door.closed);
+  }
+
+  /** Land on `to`: doors, then step triggers. Walking onto a walkable object (a bridge) counts as using it. */
+  finishStep(to: Pos): Effect[] {
+    this.state.player.pos = { ...to };
+    const walkedOn = this.objects().filter(
+      (o) => o.walkable && rectContains(o.area, to) && !this.state.flags.isSet(seenFlag(this.map.id, o.id)),
+    );
+    for (const o of walkedOn) this.state.flags.set(seenFlag(this.map.id, o.id), true);
+    const seen: Effect[] = walkedOn.length > 0 ? [{ kind: 'sync' }] : [];
+    const door = doorAt(this.map, to);
+    if (door && this.era === 'present') {
+      const targetMap = this.maps[door.targetMap];
+      const target = targetMap?.doors.find((d) => d.id === door.target);
+      if (!targetMap || !target) throw new Error(`Door ${door.id} on ${this.map.id} leads nowhere`);
+      const arrival = doorArrival(target);
+      this.state.player = { ...this.state.player, mapId: targetMap.id, pos: arrival.pos, facing: arrival.facing };
+      // The caller runs enterMap() once it has switched maps (after this autosave).
+      return [{ kind: 'map' }, { kind: 'save' }];
+    }
+    const trigger = activeTriggers(this.map, this.era, this.state.flags).find(
+      (t) => !t.onEnter && rectContains(t.area, to) && this.canFire(t),
+    );
+    if (trigger) return [...seen, ...this.fire(trigger)];
+    return [...seen, ...this.rollEncounter(to)];
+  }
+
+  /** The encounter zone active here, if any (present only: the memory has no ambushes). */
+  encounterZoneAt(pos: Pos) {
+    if (this.era !== 'present') return undefined;
+    return this.map.encounters.find((z) => rectContains(z.area, pos) && (!z.if || evaluate(z.if, this.state.flags)));
+  }
+
+  /**
+   * A step in a wild zone: after ENCOUNTER_GRACE_STEPS safe steps, each step has an
+   * ENCOUNTER_CHANCE_PER_STEP chance of an ambush from the zone's table (weighted). Until Phase 3
+   * battles exist, the fight is a short scene: fight (always won) or run.
+   */
+  private rollEncounter(pos: Pos): Effect[] {
+    const zone = this.encounterZoneAt(pos);
+    const table = zone && this.content.encounters?.[zone.table];
+    if (!zone || !table || table.groups.length === 0) return [];
+    this.wildSteps++;
+    if (this.wildSteps <= ENCOUNTER_GRACE_STEPS || this.rng.next() >= ENCOUNTER_CHANCE_PER_STEP) return [];
+    this.wildSteps = 0;
+    const group = pickGroup(table, this.rng);
+    return [{ kind: 'encounter', table: table.id, group: group.id }, ...this.startScript(encounterScript(table, group), [{ kind: 'save' }])];
+  }
+
+  /** Run the map's on-enter triggers. Call after every map change, new game or load (they are once-only). */
+  enterMap(): Effect[] {
+    this.wildSteps = 0;
+    this.state.flags.set(`visited.${this.map.id}`, true); // the city map shows where the player has been
+    if (this.mode !== 'field') return [];
+    const trigger = activeTriggers(this.map, this.era, this.state.flags).find((t) => t.onEnter && this.canFire(t));
+    return trigger ? this.fire(trigger) : [];
+  }
+
+  /**
+   * Confirm in the field: talk to the NPC or use the object the player faces (grid.ts `facingTiles`:
+   * for a diagonal facing, the diagonal tile first, then the sprite's side). An object with no dialogue
+   * of its own shows its one-line description (data/objects.ts).
+   */
+  interact(): Effect[] {
+    if (this.mode !== 'field') return [];
+    const p = this.state.player;
+    const npcs = this.npcs();
+    const objects = this.objects();
+    for (const tile of facingTiles(p.pos, p.facing)) {
+      const npc = npcs.find((n) => samePos(n.pos, tile));
+      if (npc) {
+        const def = this.content.npcs[npc.npc]!;
+        const after: Effect[] = def.shop ? [{ kind: 'shop', shop: def.shop }] : [];
+        return [{ kind: 'talk', npc }, ...this.startDialogue(def.dialogue, after)];
       }
+      const here = objects.filter((o) => rectContains(o.area, tile));
+      const used = here.find((o) => o.dialogue);
+      if (used?.dialogue) {
+        this.state.flags.set(seenFlag(this.map.id, used.id), true);
+        return this.startDialogue(used.dialogue);
+      }
+      const looked = [...here].reverse().find((o) => this.content.objects?.[o.id]?.inspect);
+      if (looked) {
+        this.state.flags.set(seenFlag(this.map.id, looked.id), true);
+        return this.startScript(inspectScript(looked.id, this.content.objects![looked.id]!.inspect!));
+      }
+    }
+    return [];
+  }
+
+  /** The NPC, object or door the player faces, when it has a name to show. */
+  targetAhead(): Target | null {
+    if (this.mode !== 'field') return null;
+    const p = this.state.player;
+    const npcs = this.npcs();
+    const objects = this.objects();
+    for (const tile of facingTiles(p.pos, p.facing)) {
+      const npc = npcs.find((n) => samePos(n.pos, tile));
+      if (npc) {
+        const name = this.content.npcs[npc.npc]?.name;
+        if (name) return { kind: 'npc', name, npc };
+        continue;
+      }
+      // The last active object wins: later objects show a state (the lit lamp over the lamp).
+      const object = [...objects].reverse().find((o) => rectContains(o.area, tile) && this.content.objects?.[o.id]);
+      if (object) return { kind: 'object', name: this.content.objects![object.id]!.name, object };
+      const door = this.era === 'present' ? doorAt(this.map, tile) : undefined;
+      const doorName = door && (this.content.doors?.[`${this.map.id}/${door.id}`] ?? this.content.doors?.[door.id]);
+      if (door && doorName) return { kind: 'door', name: doorName, door };
     }
     return null;
   }
 
-  // ---------------------------------------------------------------- effects
-
-  addEffect(kind: EffectKind, owner: number, expiry: Expiry, extra: Partial<Effect> = {}): Effect {
-    const e: Effect = { id: ++this.s.seq, kind, owner, armed: true, expiry, ...extra };
-    this.s.effects.push(e);
-    return e;
-  }
-  // "Next turn" effects arm when the owner's next turn starts and expire when it ends.
-  addNextTurnEffect(kind: EffectKind, owner: number, extra: Partial<Effect> = {}) {
-    return this.addEffect(kind, owner, { at: 'turnEnd', player: owner }, { armed: false, ...extra });
-  }
-  findEffect(kind: EffectKind, owner: number, armedOnly = true) {
-    return this.s.effects.find(e => e.kind === kind && e.owner === owner && (!armedOnly || e.armed));
-  }
-  removeEffect(e: Effect) {
-    this.s.effects = this.s.effects.filter(x => x !== e);
-    if (e.cardId && !this.s.effects.some(x => x.cardId === e.cardId)) this.toDiscard(e.cardId);
-  }
-  // Suzumori's Ayatsuri: whoever pulls the strings chooses for this player, once for the move
-  // and once for a target. Returns the puppeteer, or null.
-  redirectChooser(p: PlayerState, part: number): PlayerState | null {
-    const e = this.findEffect('redirect', p.id);
-    if (!e || e.by === undefined || !((e.level ?? 0) & part) || this.p(e.by).specter) return null;
-    e.level = (e.level ?? 0) & ~part;
-    if (!e.level) this.removeEffect(e);
-    const by = this.p(e.by);
-    this.log(`${by.name} pulls the strings: they choose ${p.name}'s ${part === REDIRECT_MOVE ? 'direction' : 'target'}.`, 'ability', { player: by.id });
-    return by;
-  }
-
-  private expire(match: (x: Expiry) => boolean) {
-    for (const e of [...this.s.effects]) if (match(e.expiry)) {
-      // Disarmed "next turn" effects only expire after their turn has run.
-      if (e.expiry.at === 'turnEnd' && !e.armed) continue;
-      if (e.expiry.at !== 'roundEnd' && e.expiry.at !== 'consumed' && (e.expiry.turns ?? 1) > 1) { e.expiry.turns = (e.expiry.turns ?? 1) - 1; continue; }
-      this.removeEffect(e);
+  /** Markers for this era and these flags (see Marker). */
+  markers(): Marker[] {
+    const out: Marker[] = [];
+    for (const n of this.npcs()) {
+      const def = this.content.npcs[n.npc]!;
+      if (this.hasNews(def.dialogue)) out.push({ kind: 'talk', id: `npc:${n.objectId}`, pos: { ...n.pos } });
     }
-  }
-
-  // ---------------------------------------------------------------- passives
-
-  // Every passive a player holds, with its level (1 = Gen I text, 2 = Gen III upgrade). `legacy`: held as a Legacy
-  // card (Ancestor's Voice, Song of Coaybay), which reads the house's legacyPassive when it has one (rules-decisions 87).
-  // Guaíza copies a living player's passive as it stands, so it is not a Legacy.
-  passives(p: PlayerState): { house: HouseId; level: number; legacy?: boolean }[] {
-    const out: { house: HouseId; level: number; legacy?: boolean }[] = [{ house: p.house, level: p.gen >= 3 ? 2 : 1 }];
-    const up = this.house(p).legacyUpgradeAt;
-    if (p.legacy && p.legacy !== p.house) out.push({ house: p.legacy, level: up && p.gen >= up ? 2 : 1, legacy: true });
-    if (p.extraPassive) out.push({ house: p.extraPassive, level: 1, legacy: true });
-    const mask = this.findEffect('mask', p.id);
-    if (mask?.house) out.push({ house: mask.house, level: mask.level ?? 1 });
-    return out;
-  }
-  // The text of a house's Legacy card.
-  legacyText(h: HouseId) {
-    const def = this.house(h);
-    return def.legacyPassive?.text ?? def.passiveText[0];
-  }
-  passiveLevel(p: PlayerState, house: HouseId) {
-    return Math.max(0, ...this.passives(p).filter(x => x.house === house).map(x => x.level));
-  }
-  hook<K extends keyof PassiveHooks>(p: PlayerState, name: K, ...args: unknown[]): number {
-    let sum = 0;
-    for (const { house, level, legacy } of this.passives(p)) {
-      const def = this.house(house);
-      const hooks = (legacy && def.legacyPassive?.hooks) || def.passive;
-      const fn = hooks[name] as ((...a: unknown[]) => number) | undefined;
-      if (fn) sum += name === 'tileBonus' ? fn(args[0], level) : fn(level);
+    const taken = new Set<string>();
+    for (const o of this.objects()) {
+      const inspect = this.content.objects?.[o.id]?.inspect;
+      if (!o.dialogue && !inspect) continue;
+      const fresh = !this.state.flags.isSet(seenFlag(this.map.id, o.id)) || (!!o.dialogue && this.hasNews(o.dialogue));
+      const pos = { x: o.area.x + (o.area.width - 1) / 2, y: o.area.y };
+      const key = `${pos.x},${pos.y}`;
+      if (!fresh || taken.has(key)) continue;
+      taken.add(key);
+      out.push({ kind: 'use', id: `obj:${o.id}`, pos });
     }
-    return sum;
-  }
-
-  // ---------------------------------------------------------------- resources
-
-  gain(p: PlayerState, pillar: Pillar, n: number, why = ''): number {
-    if (n <= 0 || p.specter) return 0;
-    if (pillar === 'influence' && this.findEffect('noInfluenceGain', p.id)) {
-      this.log(`${p.name} cannot gain Influence this turn.`, 'blocked', { player: p.id });
-      return 0;
-    }
-    if (pillar === 'fear') {
-      const grito = this.findEffect('noFearGain', p.id);
-      if (grito) {
-        this.removeEffect(grito);
-        this.log(`Grito de Guerra: ${p.name}'s Fear gain is silenced.`, 'blocked', { player: p.id });
-        return 0;
-      }
-    }
-    // Baraka Dorini: once per turn, Wealth from anything but a tile brings 1 more (rules-decisions 62).
-    if (pillar === 'wealth' && !why.endsWith(' tile')) {
-      const bonus = this.hook(p, 'wealthBonus');
-      const k = `wealthBonus@t${this.s.turnNo}`;
-      if (bonus && !p.used[k]) { p.used[k] = 1; n += bonus; }
-    }
-    p.res[pillar] += n;
-    this.log(`${p.name} gains ${n} ${cap(pillar)}${why ? ` (${why})` : ''}.`, 'gain', { player: p.id, amount: n });
-    return n;
-  }
-
-  lose(p: PlayerState, pillar: Pillar, n: number, why = ''): number {
-    const lost = Math.min(n, p.res[pillar]);
-    if (lost <= 0) return 0;
-    p.res[pillar] -= lost;
-    this.log(`${p.name} loses ${lost} ${cap(pillar)}${why ? ` (${why})` : ''}.`, 'loss', { player: p.id, amount: lost });
-    return lost;
-  }
-
-  steal(thief: PlayerState, from: PlayerState, pillar: Pillar, n: number, why = '') {
-    const got = this.lose(from, pillar, n, why);
-    if (got) this.gain(thief, pillar, got, why);
-    return got;
-  }
-
-  thresholds(p: PlayerState) {
-    const t = this.s.players.length <= THRESHOLDS.small.maxPlayers ? THRESHOLDS.small : THRESHOLDS.normal;
-    const reduce = this.house(p).claimReduction?.(p.gen) ?? 0;
-    return { combined: t.combined - reduce, minEach: t.minEach, single: t.single ?? Infinity };
-  }
-  // Which route makes this player eligible to claim, if any.
-  claimRoute(p: PlayerState): 'combined' | 'single' | null {
-    if (p.specter) return null;
-    const t = this.thresholds(p);
-    if (this.total(p) >= t.combined && PILLARS.every(x => p.res[x] >= t.minEach)) return 'combined';
-    if (PILLARS.some(x => p.res[x] >= t.single)) return 'single';
-    return null;
-  }
-  eligible(p: PlayerState) {
-    return this.claimRoute(p) !== null;
-  }
-
-  // The Throne's sanctuary: no attacks onto or off it and no dying there, but only for a player eligible to claim
-  // (rules-decisions 76), so it can't be used as a hiding place while you gather resources.
-  safeOnThrone(p: PlayerState) {
-    return THRONE_SANCTUARY && onThrone(p.pos) && (!TUNING.sanctuaryEligibleOnly || this.eligible(p));
-  }
-
-  // Big tables (rules-decisions 87, replacing the flat cap of 77): your Heart Tokens count as at most
-  // TUNING.bigTableHeartCap when you deal damage. Bonuses add on top; fixed-damage card attacks are unaffected.
-  heartCap() {
-    return this.s.players.length >= TUNING.bigTablePlayers ? TUNING.bigTableHeartCap : Infinity;
-  }
-  // The damage your Heart Tokens deal before bonuses.
-  heartDamage(hp: number) {
-    return Math.min(hp, this.heartCap());
-  }
-
-  // Throne entry (rules-decisions 87): you may not end your own move on the Throne unless eligible to claim. Passing
-  // through is fine, and a rival's card may still put you there.
-  mayStopOn(p: PlayerState, q: Pos) {
-    return !TUNING.throneEntryEligibleOnly || !onThrone(q) || this.eligible(p);
-  }
-
-  // ---------------------------------------------------------------- cards and hands
-
-  // Draws one card; the draw pile reshuffles from both discard piles when empty (Section 7).
-  takeTopCard(): number | null {
-    this.ensureDrawPile();
-    return this.s.drawPile.pop() ?? null;
-  }
-
-  discardFromHand(p: PlayerState, c: number, bottom = false) {
-    p.hand = p.hand.filter(x => x !== c);
-    this.toDiscard(c, bottom);
-  }
-
-  // An Instant just drawn by p: it resolves at once and goes to the Instant discard pile.
-  *resolveDrawnInstant(p: PlayerState, c: number): Flow {
-    const def = this.card(c);
-    this.log(`${p.name} draws ${def.name}!`, 'instant', { player: p.id, cards: [c] });
-    this.s.inPlay.push(c);
-    yield* this.resolveCard(def, p);
-    this.s.inPlay = this.s.inPlay.filter(x => x !== c);
-    this.toDiscard(c);
-    yield* this.flushDeaths();
-  }
-
-  // Draw one card for p: Instants resolve immediately, Hand Cards join the hand.
-  *drawOne(p: PlayerState): Flow<boolean> {
-    const c = this.takeTopCard();
-    if (c === null) return false;
-    const def = this.card(c);
-    if (def.kind === 'instant') {
-      yield* this.resolveDrawnInstant(p, c);
-    } else {
-      p.hand.push(c);
-      this.log(`${p.name} draws a card.`, 'draw', { player: p.id });
-      this.log(`You drew ${def.name}.`, 'drawPrivate', { player: p.id, cards: [c], visibleTo: [p.id] });
-      yield* this.enforceHandCap(p);
-    }
-    return true;
-  }
-
-  *drawToHand(p: PlayerState): Flow {
-    let guard = 0;
-    const stopped = this.s.turn?.stopDrawing && this.s.turn.player === p.id;
-    while (!p.specter && p.hand.length < HAND_SIZE && !stopped && guard++ < 200) {
-      if (!(yield* this.drawOne(p))) break;
-    }
-  }
-
-  // The hand can never hold more than 3 Hand Cards (Section 4).
-  *enforceHandCap(p: PlayerState, cap = HAND_SIZE): Flow {
-    while (p.hand.length > cap) {
-      const c = yield* this.ask(p, 'discard', `Too many cards: discard one (keep ${cap}).`,
-        p.hand.map(x => ({ label: this.card(x).name, value: x })));
-      this.discardFromHand(p, c, true);
-      this.log(`${p.name} discards down to ${cap}.`, 'discard', { player: p.id });
-    }
-  }
-
-  *resolveCard(def: CardDef, self: PlayerState): Flow {
-    yield* def.effect(this, self, def);
-  }
-
-  canPlay(p: PlayerState, c: number) {
-    const def = this.card(c);
-    if (def.kind !== 'hand' || def.responseOnly) return false;
-    return def.playable ? def.playable(this, p) : true;
-  }
-
-  // The window to cancel a Hand Card: Interference cancels any; Embargo cancels a Barter card.
-  *interfere(p: PlayerState, c: number, target?: PlayerState): Flow<boolean> {
-    const def = this.card(c);
-    const on = target ? ` on ${target.id === p.id ? 'themselves' : target.name}` : '';
-    const stop = yield* this.reaction(def.category === 'Barter' ? ['interference', 'embargo'] : ['interference'],
-      p, `${p.name} plays ${def.name}${on}.`, { played: c, ...(target ? { target: target.id } : {}) });
-    return !!stop;
-  }
-
-  *playHandCard(p: PlayerState, c: number): Flow {
-    const def = this.card(c);
-    p.hand = p.hand.filter(x => x !== c);
-    p.handCardsPlayed++;
-    this.queueRefill(p);
-    if (this.s.turn) {
-      this.s.turn.actions++;
-      if (def.aggressive) this.s.turn.aggressive = true;
-    }
-    this.log(`${p.name} plays ${def.name}.`, 'card', { player: p.id, cards: [c] });
-    this.s.inPlay.push(c);
-    const cancel = () => {
-      this.log(`${def.name} is cancelled and has no effect.`, 'blocked', { player: p.id, cards: [c] });
-      this.s.inPlay = this.s.inPlay.filter(x => x !== c);
-      this.toDiscard(c);
-    };
-    // A card aimed at a player names its target first, then the Interference window opens (in choosePlayer).
-    if (!def.namesTarget && (yield* this.interfere(p, c))) return cancel();
-    this.awaitingTarget = def.namesTarget ? { player: p.id, card: c } : null;
-    try {
-      yield* this.resolveCard(def, p);
-    } catch (e) {
-      if (e instanceof CardCancelled) return cancel();
-      // The player died while it resolved (their turn ends): the card still leaves play.
-      this.s.inPlay = this.s.inPlay.filter(x => x !== c);
-      this.settleCard(c);
-      throw e;
-    } finally {
-      this.awaitingTarget = null;
-    }
-    this.s.inPlay = this.s.inPlay.filter(x => x !== c);
-    // Lasting cards stay face up until their effect ends.
-    this.settleCard(c);
-    yield* this.flushDeaths();
-  }
-
-  // ---------------------------------------------------------------- movement
-
-  moveTo(p: PlayerState, pos: Pos, how: string, kind = 'move') {
-    if (!p.pos) return;
-    const from = p.pos;
-    p.pos = { ...pos };
-    if (!p.visited.includes(key(pos))) p.visited.push(key(pos));
-    this.log(`${p.name} ${how} ${label(from)} → ${label(pos)}.`, kind, { player: p.id });
-  }
-
-  // Up to `max` squares in one straight line. `full` forces the whole distance (stopping at the edge).
-  *moveStraight(p: PlayerState, max: number, opts: { full?: boolean; chooser?: PlayerState; dirs?: Dir[]; why?: string } = {}): Flow {
-    if (!p.pos || max <= 0) return;
-    const chooser = opts.chooser ?? p;
-    const options: Option<{ d: Dir; n: number }>[] = [];
-    if (!opts.full) options.push({ label: 'Stay here', value: { d: 'north', n: 0 } });
-    for (const d of opts.dirs ?? DIR_NAMES) {
-      const room = Math.min(max, roomToEdge(p.pos, d));
-      if (opts.full) {
-        if (room > 0) options.push({ label: `${cap(d)} ${room}`, value: { d, n: room } });
-      } else {
-        // A move you choose yourself can't end on the Throne unless you're eligible (rules-decisions 87).
-        for (let n = 1; n <= room; n++) {
-          if (chooser.id === p.id && !this.mayStopOn(p, step(p.pos, d, n))) continue;
-          options.push({ label: `${cap(d)} ${n}`, value: { d, n } });
-        }
-      }
-    }
-    if (!options.length) return;
-    const prompt = opts.why ?? (opts.full ? `Move ${max} in a straight line` : `Move up to ${max} in a straight line`);
-    const choice = yield* this.ask(chooser, 'move', prompt, options, { player: p.id, max, from: p.pos });
-    if (choice.n > 0) this.moveTo(p, step(p.pos, choice.d, choice.n), 'moves');
-  }
-
-  // Up to `max` orthogonal steps in any combination (rules-decisions 5): any square within that many
-  // steps, turning as often as you like. Pawns never block.
-  *moveFree(p: PlayerState, max: number, why?: string): Flow {
-    if (!p.pos || max <= 0) return;
-    const from = p.pos;
-    const options: Option<Pos | null>[] = [{ label: 'Stay here', value: null }];
-    // Pass through the Throne freely, but stop there only while eligible to claim (rules-decisions 87).
-    for (const q of squaresWithin(from, max)) if (this.mayStopOn(p, q)) options.push({ label: label(q), value: q });
-    const to = yield* this.ask(p, 'move', why ?? `Move up to ${max} spaces`, options, { player: p.id, max, from, free: true });
-    if (to) this.moveTo(p, to, 'moves');
-  }
-
-  // One step toward a goal (Grand Market, Elodie's Memory...). Optional.
-  *stepToward(p: PlayerState, goals: Pos[], why: string): Flow {
-    if (!p.pos || !goals.length) return;
-    const from = p.pos;
-    const goal = goals.reduce((a, b) => (manhattan(from, a) <= manhattan(from, b) ? a : b));
-    const options: Option<Pos | null>[] = [{ label: 'Stay', value: null }];
-    for (const d of DIR_NAMES) {
-      const n = step(from, d);
-      if (inBoard(n) && manhattan(n, goal) < manhattan(from, goal) && this.mayStopOn(p, n)) options.push({ label: `Step ${d}`, value: n });
-    }
-    const to = yield* this.ask(p, 'move', why, options, { player: p.id, from });
-    if (to) this.moveTo(p, to, 'steps');
-  }
-
-  teleport(p: PlayerState, pos: Pos, why: string) {
-    this.moveTo(p, pos, `${why}:`, 'teleport');
-  }
-
-  // Extra movement from cards: adds to the roll before moving, or moves right away after (rules-decisions 9).
-  *extraMove(p: PlayerState, n: number): Flow {
-    const t = this.s.turn;
-    if (t && t.player === p.id && !t.moved) {
-      t.rollBonus += n;
-      this.log(`${p.name} will move ${n} further this turn.`, 'info', { player: p.id });
-    } else {
-      yield* this.moveFree(p, n, `Move up to ${n} extra`);
-    }
-  }
-
-  // Step 1 of the turn: roll and move.
-  *rollAndMove(p: PlayerState): Flow {
-    const t = this.s.turn!;
-    let roll = rollD6(this.rng);
-    const rolled = roll;
-    const confusion = this.findEffect('confusion', p.id, false);
-    if (confusion) { roll = Math.max(1, roll - 2); this.removeEffect(confusion); }
-    roll += t.rollBonus + this.hook(p, 'moveBonus');
-    this.log(`${p.name} rolls a ${rolled}${roll !== rolled ? ` (moves up to ${roll})` : ''}.`, 'roll', { player: p.id, amount: rolled });
-    t.moved = true;
-
-    // Ill Omen: the move is cancelled; they stay where they are (the resource check still happens there).
-    if (yield* this.reaction(['omen'], p, `${p.name} rolls to move up to ${roll}.`, { roll })) {
-      this.log(`Ill Omen: ${p.name} does not move this turn.`, 'blocked', { player: p.id });
-      yield* this.resourceCheck(p);
-      return;
-    }
-
-    const march = this.findEffect('forcedMarch', p.id, false);
-    const puppeteer = march ? null : this.redirectChooser(p, REDIRECT_MOVE);
-    if (march && march.by !== undefined) {
-      this.removeEffect(march);
-      const by = this.p(march.by);
-      this.log(`Forced March: ${by.name} chooses ${p.name}'s direction.`, 'info', { player: by.id });
-      yield* this.moveStraight(p, roll, { full: true, chooser: by.specter ? p : by, why: `Forced March: move ${p.name} the full ${roll}` });
-    } else if (puppeteer) {
-      const dir = yield* this.ask(puppeteer, 'direction', `Choose the direction of ${p.name}'s move`,
-        DIR_NAMES.filter(d => roomToEdge(p.pos!, d) > 0).map(d => ({ label: cap(d), value: d })));
-      yield* this.moveStraight(p, roll, { dirs: [dir] });
-    } else {
-      yield* this.moveFree(p, roll);
-    }
-    yield* this.ambush(p);
-    yield* this.resourceCheck(p);
-  }
-
-  // Ambush: a rival on or next to where the mover stopped may attack them at once for 1 damage, like an attack
-  // card (if an attack is allowed). They may Block it.
-  *ambush(p: PlayerState): Flow {
-    const ok = (o: PlayerState) => !!(o.pos && p.pos && adjacent(o.pos, p.pos) && !this.attackBlockedReason(o, p, 'card'));
-    const hit = yield* this.reaction(['ambush'], p, `${p.name} stops beside you.`, {}, ok);
-    if (hit) yield* this.attack(hit.player, p, 'card', 1);
-  }
-
-  // Step 2: the resource check.
-  *resourceCheck(p: PlayerState): Flow {
-    const t = this.s.turn;
-    if (!p.pos || !t) return;
-    const tile = this.tileAt(p.pos);
-    if (!tile) return;
-    const k = key(p.pos);
-    if (tile.house.id === p.house) {
-      return this.log(`${p.name} cannot farm their own tile.`, 'info', { player: p.id });
-    }
-    if (p.lastScoredTile === k) return this.log(`${p.name} already took from this land; the next score must come from a different tile.`, 'info', { player: p.id });
-    if (this.findEffect('sabotage', p.id)) return this.log(`Sabotage: ${p.name} gains nothing from tiles this turn.`, 'blocked', { player: p.id });
-    const pillar = TILE_PILLAR[tile.house.tileType];
-    const alone = this.playersOn(p.pos).length === 1;
-    let n = (alone ? TUNING.tileAlone : TUNING.tileShared) + this.hook(p, 'tileBonus', pillar);
-    // Intercept: they gain 1 less.
-    if (yield* this.reaction(['intercept'], p, `${p.name} is about to gain ${n} ${cap(pillar)} from ${tile.house.name}'s tile.`, { pillar, amount: n })) {
-      n -= 1;
-      this.log(`Intercepted: ${p.name} gains 1 less.`, 'blocked', { player: p.id });
-    }
-    if (n > 0 && this.gain(p, pillar, n, `${tile.house.name} ${tile.house.tileType} tile`)) t.scoredTile = k;
-  }
-
-  // ---------------------------------------------------------------- combat (Section 6)
-
-  attackBlockedReason(a: PlayerState, t: PlayerState, kind: AttackInfo['kind']): string | null {
-    if (t.specter || a.id === t.id) return 'invalid';
-    if (kind === 'challenge') return null;
-    if (OPENING.truceRounds > 0 && this.s.round <= OPENING.truceRounds) return 'the opening truce holds';
-    if (this.safeOnThrone(t) || this.safeOnThrone(a)) return 'no one fights an heir on the Throne';
-    if (this.findEffect('newborn', t.id)) return `${t.name}'s heir has only just risen`;
-    if (this.findEffect('noAttack', a.id)) return `${a.name} may not attack this turn`;
-    if (this.s.effects.some(e => e.kind === 'truce' && e.armed &&
-      ((e.owner === a.id && e.other === t.id) || (e.owner === t.id && e.other === a.id)))) return 'truce';
-    if (this.findEffect('ceasefire', t.id)) return 'ceasefire';
-    if (t.pos && this.s.effects.some(e => e.kind === 'shieldWall' && e.square === key(t.pos!) && e.owner !== t.id)) return 'Shield Wall';
-    return null;
-  }
-
-  basicTargets(a: PlayerState): PlayerState[] {
-    if (!a.pos) return [];
-    const reach = this.hook(a, 'reach');
-    return this.others(a).filter(t => t.pos &&
-      (adjacent(a.pos!, t.pos) || (reach > 1 && inLine(a.pos!, t.pos, reach))) &&
-      !this.attackBlockedReason(a, t, 'basic'));
-  }
-
-  mostFeared(): PlayerState | null {
-    const living = this.living();
-    const top = Math.max(...living.map(p => p.res.fear));
-    const at = living.filter(p => p.res.fear === top);
-    return at.length === 1 ? at[0] : null;
-  }
-
-  // Resolve one attack. Returns whether it landed and how much it dealt.
-  *attack(a: PlayerState, t: PlayerState, kind: AttackInfo['kind'], base?: number, unblockable = false): Flow<{ landed: boolean; damage: number }> {
-    if (this.s.turn?.player === a.id) this.s.turn.aggressive = true;
-    // Damage = Heart Tokens (at most TUNING.bigTableHeartCap of them at big tables), plus bonuses; card attacks are fixed.
-    let damage = base ?? this.heartDamage(a.hp);
-    if (kind === 'basic' || kind === 'challenge') damage += this.hook(a, 'basicAttackBonus');
-    const dread = this.findEffect('dreadBanner', a.id);
-    if (dread) { damage += 1; this.removeEffect(dread); }
-    if (a.mark === t.id) damage += 1;   // La Marca
-    if (this.house(t).mostFearedDownside?.(t.gen) && this.mostFeared()?.id === t.id) damage += 1;
-    const marked = this.findEffect('markedForDeath', t.id);
-    const info: AttackInfo = { attacker: a.id, target: t.id, kind, damage: Math.min(TUNING.maxDamage, damage + (marked ? 1 : 0)) };
-    this.log(`${a.name} attacks ${t.name}!`, 'attack', { player: a.id, target: t.id, amount: info.damage, tag: kind });
-
-    // Block / Deflect window.
-    const blocks = unblockable ? [] : t.hand.filter(c => this.card(c).block?.canUse(this, t, info));
-    let outcome: 'negate' | 'survive1' | null = null;
-    if (blocks.length) {
-      const opts: Option<number | null>[] = [{ label: `Take ${info.damage} damage`, value: null },
-        ...blocks.map(c => ({ label: this.card(c).name, value: c }))];
-      const c = yield* this.ask(t, 'block', `${a.name} attacks you for ${info.damage}. Respond?`, opts, { attack: info });
-      if (c !== null) {
-        t.hand = t.hand.filter(x => x !== c);
-        this.queueRefill(t);
-        this.log(`${t.name} answers with ${this.card(c).name}!`, 'block', { player: t.id, target: a.id, cards: [c] });
-        this.s.inPlay.push(c);
-        outcome = yield* this.card(c).block!.resolve(this, t, info);
-        this.s.inPlay = this.s.inPlay.filter(x => x !== c);
-        this.settleCard(c);
-      }
-    }
-    if (outcome === 'negate') {
-      yield* this.flushDeaths();
-      return { landed: false, damage: 0 };
-    }
-
-    if (marked) this.removeEffect(marked);
-    let dealt = info.damage;
-    if (outcome === 'survive1') dealt = Math.max(0, Math.min(dealt, t.hp - 1));
-    // Stillwater's Unbroken: once per heir, an attack that would kill them while they hold 2 or more Heart Tokens leaves
-    // them at 1 (rules-decisions 83, 87). A negated (Blocked) attack never gets here, so it doesn't use it up.
-    if (dealt >= t.hp && t.hp >= 2 && t.used.unbroken !== t.gen && this.hook(t, 'unbroken') > 0) {
-      t.used.unbroken = t.gen;
-      dealt = t.hp - 1;
-      this.log(`Unbroken: ${t.name} stands firm with 1 Heart Token.`, 'block', { player: t.id });
-    }
-    this.damage(t, dealt, a.id, kind === 'challenge' ? 'in the challenge' : '');
-    if (outcome === 'survive1') this.log(`${t.name} refuses to fall!`, 'block', { player: t.id });
-    if (this.s.turn?.player === a.id) this.s.turn.damageDealt += dealt;
-    const fear = this.hook(a, 'fearOnLanded');
-    if (fear) this.gain(a, 'fear', fear, 'combat win');
-    // Agni ki Shakti III: a free step after landing an attack (rules-decisions 64).
-    const steps = this.hook(a, 'stepOnLanded');
-    if (steps && !a.specter && a.pos && !this.inChallenge) yield* this.moveFree(a, steps, `Agni ki Shakti: move up to ${steps}`);
-    yield* this.flushDeaths();
-    return { landed: true, damage: dealt };
-  }
-
-  *basicAttack(a: PlayerState, t: PlayerState): Flow {
-    const turn = this.s.turn!;
-    // The first attack of an attack action uses your action; Endless War's follow-ups don't.
-    if (turn.attacks === 0 || turn.attacks >= turn.attacksAllowed) {
-      if (turn.attacks >= turn.attacksAllowed) turn.attacksAllowed++;
-      turn.actions++;
-    }
-    turn.attacks++;
-    const puppeteer = this.redirectChooser(a, REDIRECT_TARGET);
-    if (puppeteer) t = (yield* this.choosePlayer(puppeteer, this.basicTargets(a), `Choose who ${a.name} attacks`)) ?? t;
-    const hit = yield* this.attack(a, t, 'basic');
-    // Cards waiting for this attack resolve now, each once.
-    for (const e of this.s.effects.filter(x => x.kind === 'afterAttack' && x.owner === a.id && x.armed)) {
-      this.removeEffect(e);
-      if (!a.specter) yield* this.card(e.cardId!).afterAttack!(this, a, hit.landed ? hit.damage : 0);
-    }
-  }
-
-  // HP loss of any kind. Deaths are queued and processed by flushDeaths.
-  damage(t: PlayerState, n: number, killer: number | null, why = '') {
-    if (t.specter || n <= 0 || t.hp <= 0) return;
-    // Sanctuary: no one dies on the Throne (except in a challenge fight); the loss stops at 1 Heart Token.
-    if (!this.inChallenge && this.safeOnThrone(t) && t.hp - n < 1) {
-      n = t.hp - 1;
-      this.log(`The Throne's sanctuary holds: ${t.name} cannot fall here.`, 'block', { player: t.id });
-      if (n <= 0) return;
-    }
-    t.hp = Math.max(0, t.hp - n);
-    this.log(`${t.name} loses ${n} Heart Token${n === 1 ? '' : 's'}${why ? ` ${why}` : ''}.`, 'damage', { player: t.id, amount: n });
-    if (t.hp === 0 && !this.s.dying.some(d => d.victim === t.id)) this.s.dying.push({ victim: t.id, killer });
-  }
-
-  // Process queued deaths in order. If the active player died, their turn ends.
-  *flushDeaths(): Flow {
-    let activeDied = false;
-    while (this.s.dying.length) {
-      const { victim, killer } = this.s.dying[0];
-      if (this.s.turn?.player === victim) activeDied = true;
-      yield* this.killPlayer(this.p(victim), killer === null ? null : this.p(killer));
-      this.s.dying.shift();
-    }
-    if (activeDied && !this.inChallenge) throw new EndTurn();
-  }
-  inChallenge = false;
-  // Players who played a card and draw back up to 3 at the end of the current action (rules-decisions 73).
-  private refills: number[] = [];
-  private queueRefill(p: PlayerState) {
-    if (TUNING.refillOnPlay && !this.refills.includes(p.id)) this.refills.push(p.id);
-  }
-  *flushRefills(): Flow {
-    while (this.refills.length) {
-      const p = this.p(this.refills.shift()!);
-      yield* this.drawToHand(p);
-    }
-  }
-
-  // ---------------------------------------------------------------- death and succession (Section 9)
-
-  // The Reckoning bonus: steal 1 from one pool, or 1 of each pillar (TUNING.reckoningSteal 'eachPillar'), taking
-  // from pools they still have for any pillar they have none of.
-  *reckoningSteal(killer: PlayerState, v: PlayerState): Flow {
-    if (TUNING.reckoningSteal === 'eachPillar') {
-      let owed = 0;
-      for (const x of PILLARS) if (v.res[x] > 0) this.steal(killer, v, x, 1, 'Reckoning'); else owed++;
-      for (; owed > 0; owed--) {
-        const from = PILLARS.filter(x => v.res[x] > 0);
-        const pick = yield* this.choosePillar(killer, `Reckoning: steal 1 more from ${v.name}'s pool`, from);
-        if (!pick) break;
-        this.steal(killer, v, pick, 1, 'Reckoning');
-      }
-    } else {
-      const from = PILLARS.filter(x => v.res[x] > 0);
-      const pick = yield* this.choosePillar(killer, `Reckoning: steal 1 from ${v.name}'s pool`, from);
-      if (pick) this.steal(killer, v, pick, 1, 'Reckoning');
-    }
-  }
-
-  *killPlayer(v: PlayerState, killer: PlayerState | null): Flow {
-    const house = this.house(v);
-    this.log(`${v.name}'s Gen ${roman(v.gen)} ${house.name} falls${killer ? ` to ${killer.name}` : ''}.`, 'death', { player: v.id, target: killer?.id });
-    if (!this.s.housesLost.includes(v.house)) this.s.housesLost.push(v.house);
-
-    // A Reckoning: the killer's family holds a Grudge against the victim.
-    const reckoning = !!killer && killer.id !== v.id && !killer.specter && killer.grudges.includes(v.id);
-    let bonus = reckoning;                          // still owed (Stillwater may cancel it)
-    if (reckoning) {
-      this.log(`Reckoning! ${killer.name} avenges their bloodline.`, 'reckoning', { player: killer.id, target: v.id });
-      const cancels = this.hook(v, 'reckoningCancels');
-      const usedCancels = v.used['reckoningCancel'] ?? 0;
-      if (cancels > usedCancels && (yield* this.confirm(v, `Stillwater's Patience: cancel ${killer.name}'s Reckoning bonus?`, 'Cancel it', 'Allow'))) {
-        v.used['reckoningCancel'] = usedCancels + 1;
-        this.log(`${v.name}'s patience denies the Reckoning bonus.`, 'block', { player: v.id });
-        bonus = false;
-      }
-    }
-    // The bonus can come before the death loss (TUNING.reckoningTiming 'before'), out of it ('fromLoss') or after it.
-    if (bonus && TUNING.reckoningTiming === 'before') { yield* this.reckoningSteal(killer!, v); bonus = false; }
-
-    // 1. Halve one pool (the dying player's choice), or every pool in the 'allHalfUp' variant.
-    if (house.keepsOnDeath?.(v.gen)) {
-      // nothing is lost
-    } else if (TUNING.deathLoss === 'allHalfUp') {
-      for (const x of PILLARS) if (v.res[x] > 0) this.lose(v, x, Math.ceil(v.res[x] / 2), 'death');
-    } else {
-      const bleedable = PILLARS.filter(x => Math.floor(v.res[x] / 2) > 0);
-      const pool = yield* this.choosePillar(v, 'Your character died: choose a pool to lose half of.', bleedable);
-      if (pool) {
-        const lost = this.lose(v, pool, Math.floor(v.res[pool] / 2), 'death');
-        if (bonus && TUNING.reckoningTiming === 'fromLoss') {
-          // The avenger collects part of what was lost instead of it going back to the supply.
-          const take = Math.min(lost, TUNING.reckoningSteal === 'eachPillar' ? 3 : 1);
-          if (take) this.gain(killer!, pool, take, 'Reckoning');
-          bonus = false;
-        }
-      }
-    }
-    if (bonus && TUNING.reckoningTiming === 'fromLoss') bonus = false;   // nothing was lost, so nothing to collect
-
-    // 2. Grudge or Reckoning.
-    if (killer && killer.id !== v.id) {
-      killer.kills++;
-      if (reckoning) {
-        killer.grudges.splice(killer.grudges.indexOf(v.id), 1);
-        killer.reckonings++;
-        if (bonus) yield* this.reckoningSteal(killer, v);
-      } else {
-        v.grudges.push(killer.id);
-        this.log(`${v.name}'s bloodline now holds a Grudge against ${killer.name}.`, 'grudge', { player: v.id, target: killer.id });
-      }
-      const fear = this.hook(killer, 'fearOnKill');
-      if (fear && !killer.specter) this.gain(killer, 'fear', fear, 'kill');
-      this.s.lastKill = { killer: killer.id, victim: v.id };
-    }
-
-    // Effects that end with the character: every lasting card on them is discarded, except truces, Ceasefire and
-    // Golden Harvest, which carry over to the heir (rules-decisions 84).
-    for (const e of this.s.effects.filter(x => x.owner === v.id && ENDS_WITH_CHARACTER.includes(x.kind))) this.removeEffect(e);
-    for (const o of this.s.players) if (o.mark === v.id) o.mark = null;
-
-    // 3-5. Next generation, or the Specter.
-    if (v.gen === 4) {
-      v.specter = true;
-      v.hp = 0;
-      v.pos = null;
-      for (const c of [...v.hand]) this.discardFromHand(v, c);
-      v.grudges = [];
-      this.log(`${v.name}'s bloodline has ended. They rise as a Specter.`, 'specter', { player: v.id });
-      // Yaguana IV: take a passive from a house that has become a Specter.
-      for (const o of this.living()) if (o.pendingExtraPassive) {
-        o.pendingExtraPassive = false;
-        o.extraPassive = v.house;
-        this.log(`${o.name} claims the ${this.house(v).passiveName} of the fallen ${this.house(v).name}.`, 'ability', { player: o.id });
-      }
-    } else {
-      v.gen = (v.gen + 1) as PlayerState['gen'];
-      v.maxHp = house.hp[v.gen - 1];
-      v.hp = v.maxHp;
-      v.pos = { ...house.home };
-      v.visited = [key(house.home)];
-      v.lastScoredTile = null;
-      this.log(`${v.name}'s Gen ${roman(v.gen)} heir rises at home with ${v.hp} Heart Tokens.`, 'succession', { player: v.id });
-      if (NEWBORN_PROTECTION) {
-        // Safe from attacks until the end of their first turn; if they fell on their own turn, that's the next one.
-        this.s.effects = this.s.effects.filter(e => !(e.kind === 'newborn' && e.owner === v.id));
-        this.addEffect('newborn', v.id, { at: 'turnEnd', player: v.id, turns: this.s.turn?.player === v.id ? 2 : 1 });
-        this.log(`${v.name}'s heir is protected from attacks until the end of their first turn.`, 'info', { player: v.id });
-      }
-      if (house.legacyOnDeath) yield* this.chooseLegacy(v);
-      if (house.extraPassiveAt && v.gen >= house.extraPassiveAt && !v.extraPassive && !v.pendingExtraPassive) {
-        const gone = this.s.players.filter(o => o.specter && o.id !== v.id).map(o => o.house);
-        if (gone.length) {
-          v.extraPassive = yield* this.ask(v, 'legacy', 'Song of Coaybay: take the passive of a vanished bloodline',
-            gone.map(h => ({ label: `${this.house(h).name}: ${this.house(h).passiveName}`, value: h })));
-          this.log(`${v.name} gains ${this.house(v.extraPassive!).passiveName} forever.`, 'ability', { player: v.id });
-        } else {
-          v.pendingExtraPassive = true;
-        }
-      }
-    }
-
-    // Agnivansh II: a bonus half-move after landing a kill.
-    if (killer && !killer.specter && killer.pos && this.house(killer).halfMoveOnKill?.(killer.gen)) {
-      const n = Math.ceil(rollD6(this.rng) / 2);
-      yield* this.moveFree(killer, n, `Rakt Ki Pyaas: move up to ${n}`);
-    }
-  }
-
-  *chooseLegacy(v: PlayerState): Flow {
-    let pool = [...this.s.housesLost];
-    if (!pool.length) return;
-    const drawTwo = this.house(v).legacyDrawTwoAt;
-    if (drawTwo && v.gen >= drawTwo) pool = shuffle(pool, this.rng).slice(0, 2);
-    const h = yield* this.ask(v, 'legacy', 'Voice of the Opía: choose a Legacy from a house that has lost a character',
-      pool.map(x => ({ label: `${this.house(x).name}: ${this.house(x).passiveName}`, value: x })));
-    v.legacy = h;
-    this.log(`${v.name} inherits the ${this.house(h).passiveName} Legacy of ${this.house(h).name}.`, 'ability', { player: v.id });
-  }
-
-  // ---------------------------------------------------------------- abilities
-
-  abilityKey(a: Ability) {
-    return a.limit === 'game' ? a.id : a.limit === 'round' ? `${a.id}@r${this.s.round}` : `${a.id}@t${this.s.turnNo}`;
-  }
-
-  abilitiesOf(p: PlayerState): Ability[] {
-    const own = this.house(p).abilities.filter(a => p.gen >= a.gen);
-    const fromPassives = this.passives(p).map(x => this.house(x.house).passiveAbility).filter((a): a is Ability => !!a);
-    return [...own, ...fromPassives.filter((a, i, all) => all.findIndex(b => b.id === a.id) === i)];
-  }
-
-  usableAbilities(p: PlayerState): Ability[] {
-    return this.abilitiesOf(p).filter(a => {
-      const uses = a.uses ? a.uses(this, p) : 1;
-      if ((p.used[this.abilityKey(a)] ?? 0) >= uses) return false;
-      return a.canUse ? a.canUse(this, p) : true;
-    });
-  }
-
-  *useAbility(p: PlayerState, a: Ability): Flow {
-    const k = this.abilityKey(a);
-    p.used[k] = (p.used[k] ?? 0) + 1;
-    this.log(`${p.name} uses ${a.name}.`, 'ability', { player: p.id });
-    yield* a.run(this, p);
-    yield* this.flushDeaths();
-  }
-
-  // ---------------------------------------------------------------- the turn (Section 4)
-
-  turnActions(p: PlayerState): Option<TurnAction>[] {
-    const t = this.s.turn!;
-    const out: Option<TurnAction>[] = [];
-    if (!t.moved) out.push({ label: 'Roll and move', value: { type: 'roll' } });
-    const canAttackNow = t.moved || this.house(p).attackBeforeMove?.(p.gen);
-    const actionLeft = t.actions < t.actionsAllowed;
-    const midAttack = t.attacks > 0 && t.attacks < t.attacksAllowed;
-    if (canAttackNow && (midAttack || actionLeft)) {
-      const ends = ATTACK_ENDS_TURN && t.moved && (midAttack ? t.attacks + 1 >= t.attacksAllowed : t.attacksAllowed <= 1) &&
-        t.actions + (midAttack ? 0 : 1) >= t.actionsAllowed;
-      for (const target of this.basicTargets(p)) {
-        out.push({ label: `Attack ${target.name}${ends ? ' (ends turn)' : ''}`, value: { type: 'attack', target: target.id } });
-      }
-    }
-    // A Hand Card is your action for the turn, played after you move (instead of attacking).
-    if (t.moved && actionLeft && !midAttack) {
-      for (const c of p.hand) if (this.canPlay(p, c)) out.push({ label: `Play ${this.card(c).name}`, value: { type: 'card', card: c } });
-    }
-    if (TRADE.offer && t.moved && actionLeft && !midAttack && !t.offered && this.tradePartners(p).length) {
-      out.push({ label: 'Offer a trade', value: { type: 'trade' } });
-    }
-    for (const a of this.usableAbilities(p)) out.push({ label: a.name, value: { type: 'ability', id: a.id } });
-    if (onThrone(p.pos) && this.eligible(p)) out.push({ label: 'Claim the Throne', value: { type: 'claim' } });
-    if (t.moved) out.push({ label: 'End turn', value: { type: 'end' } });
     return out;
   }
 
-  private startTurn(p: PlayerState, extraTurn: boolean) {
-    this.s.turnNo++;
-    this.s.turn = {
-      player: p.id, moved: false, attacks: 0, attacksAllowed: 1, actions: 0, actionsAllowed: 1,
-      rollBonus: 0, aggressive: false, damageDealt: 0, scoredTile: null, stopDrawing: false, extraTurn, offered: false,
+  /**
+   * Whether playing a dialogue now would change any flag (on some path through its choices, up to
+   * NEWS_CHOICE_DEPTH deep): the person has something new to say. A dry run on a copy of the flags.
+   */
+  hasNews(dialogueId: string): boolean {
+    const script = this.content.dialogue[dialogueId];
+    if (!script) return false;
+    const base = this.state.flags.snapshot();
+    const changed = (flags: FlagStore) => {
+      const now = flags.snapshot();
+      const keys = new Set([...Object.keys(base), ...Object.keys(now)]);
+      for (const k of keys) if (base[k] !== now[k]) return true;
+      return false;
     };
-    // Effects that last "until your next turn" end now; "next turn" effects arm.
-    this.expire(x => x.at === 'turnStart' && x.player === p.id);
-    for (const e of this.s.effects) if (e.owner === p.id && !e.armed) e.armed = true;
-  }
-
-  *playTurn(p: PlayerState, extraTurn = false): Flow {
-    this.startTurn(p, extraTurn);
-    this.log(`${p.name}'s turn${extraTurn ? ' (The Great Raid: second turn)' : ''}.`, 'turn', { player: p.id });
-    if (extraTurn && this.findEffect('handPublic', p.id)) this.reveal(p, 'all', 'The Great Raid');
-    try {
-      // Hex of Withering strikes at the start of the turn.
-      for (const hex of this.s.effects.filter(e => e.kind === 'hex' && e.owner === p.id && e.armed)) {
-        this.removeEffect(hex);
-        this.damage(p, 1, hex.by ?? null, '(Hex of Withering)');
-      }
-      yield* this.flushDeaths();
-
-      for (let guard = 0; guard < 100; guard++) {
-        const action = yield* this.ask(p, 'turn', 'Your turn: choose an action', this.turnActions(p));
-        if (action.type === 'end') break;
-        yield* this.doAction(p, action);
-        if (this.s.winner !== null) throw new GameOver();
-        yield* this.flushRefills();
-        // Attacking is your action: the turn ends after your last allowed attack, once you've moved.
-        const t = this.s.turn!;
-        if (ATTACK_ENDS_TURN && action.type === 'attack' && t.attacks >= t.attacksAllowed && t.moved && t.actions >= t.actionsAllowed) break;
-      }
-
-      // Stillwater II: The Long Watch (no action at all: no attack, Hand Card or trade; rules-decisions 62).
-      if (this.house(p).longWatch?.(p.gen) && !this.s.turn!.aggressive && this.s.turn!.actions === 0) {
-        const x = yield* this.choosePillar(p, 'The Long Watch: you stayed your hand. Gain 1 of which resource?');
-        if (x) this.gain(p, x, 1, 'The Long Watch');
-      }
-      // Step 5: draw back up to 3.
-      yield* this.drawToHand(p);
-    } catch (e) {
-      if (!(e instanceof EndTurn)) throw e;
-      this.log(`${p.name}'s turn ends.`, 'info', { player: p.id });
-    }
-    // Cards played during an action that ended the turn are still replaced.
-    try { yield* this.flushRefills(); } catch (e) { if (!(e instanceof EndTurn)) throw e; }
-    if (this.s.turn!.scoredTile) p.lastScoredTile = this.s.turn!.scoredTile;
-    this.expire(x => x.at === 'turnEnd' && x.player === p.id);
-    if (extraTurn) for (const e of this.s.effects.filter(x => x.kind === 'handPublic' && x.owner === p.id)) this.removeEffect(e);
-    this.s.turn = null;
-  }
-
-  *doAction(p: PlayerState, action: TurnAction): Flow {
-    switch (action.type) {
-      case 'roll': yield* this.rollAndMove(p); break;
-      case 'attack': yield* this.basicAttack(p, this.p(action.target)); break;
-      case 'card': yield* this.playHandCard(p, action.card); break;
-      case 'ability': {
-        const a = this.abilitiesOf(p).find(x => x.id === action.id)!;
-        yield* this.useAbility(p, a);
-        break;
-      }
-      case 'claim': yield* this.claim(p); break;
-      case 'trade': yield* this.offerTrade(p); break;
-      case 'end': break;
-    }
-  }
-
-  // ---------------------------------------------------------------- the trade offer (rules-decisions 60)
-
-  // What p could give a partner: a resource p holds, for a different one the partner holds.
-  tradeGives(p: PlayerState, partner: PlayerState): Pillar[] {
-    return PILLARS.filter(y => p.res[y] > 0 && PILLARS.some(x => x !== y && partner.res[x] > 0));
-  }
-  tradePartners(p: PlayerState): PlayerState[] {
-    return this.others(p).filter(o => this.tradeGives(p, o).length > 0);
-  }
-
-  *offerTrade(p: PlayerState): Flow {
-    const t = this.s.turn!;
-    t.offered = true;
-    t.actions++;
-    const partner = yield* this.choosePlayer(p, this.tradePartners(p), 'Offer a trade to whom?', { trade: true });
-    if (!partner) return;
-    const give = (yield* this.choosePillar(p, `Trade: give ${partner.name} 1 of`, this.tradeGives(p, partner), { trade: true, partner: partner.id }))!;
-    const take = (yield* this.choosePillar(p, `Trade: ask ${partner.name} for 1`, PILLARS.filter(x => x !== give && partner.res[x] > 0),
-      { trade: true, partner: partner.id, give }))!;
-    this.log(`${p.name} offers ${partner.name} 1 ${cap(give)} for 1 ${cap(take)}.`, 'trade', { player: p.id, target: partner.id });
-    const yes = yield* this.ask(partner, 'trade', `${p.name} offers you 1 ${cap(give)} for 1 of your ${cap(take)}.`,
-      [{ label: 'Accept', value: true }, { label: 'Refuse', value: false }], { from: p.id, give, take });
-    if (!yes) {
-      this.log(`${partner.name} refuses the trade.`, 'trade', { player: partner.id, target: p.id });
-      if (!TRADE.refusedUsesAction) t.actions--;
-      return;
-    }
-    // Embargo: anyone else may cancel the deal.
-    if (yield* this.reaction(['embargo'], p, `${p.name} and ${partner.name} trade ${cap(give)} for ${cap(take)}.`,
-      { trade: true, partner: partner.id, give, take }, o => o.id !== partner.id)) {
-      this.log('Embargo: the trade is cancelled. Nothing changes hands.', 'blocked', { player: p.id });
-      return;
-    }
-    this.lose(p, give, 1, 'trade'); this.gain(partner, give, 1, 'trade');
-    this.lose(partner, take, 1, 'trade'); this.gain(p, take, 1, 'trade');
-  }
-
-  // ---------------------------------------------------------------- the Specter (Section 10)
-
-  // The Specter picks from the top of the Instant discard pile; with fewer than 5 there, it skips.
-  specterChoices(): number[] {
-    if (this.s.instantDiscard.length < TUNING.specterChoices) return [];
-    return this.s.instantDiscard.slice(-TUNING.specterChoices).filter(c => !this.card(c).noSpecter);
-  }
-
-  *specterTurn(p: PlayerState): Flow {
-    this.startTurn(p, false);
-    try {
-      const choices = this.specterChoices();
-      if (!choices.length) {
-        this.log(`${p.name}'s Specter finds nothing to stir.`, 'specter', { player: p.id });
-      } else {
-        const c = yield* this.ask(p, 'specter', 'Specter: choose mischief from the Instant discard pile',
-          [{ label: 'Pass', value: null as number | null }, ...choices.map(x => ({ label: this.card(x).name, value: x as number | null }))]);
-        if (c !== null) {
-          const target = yield* this.choosePlayer(p, this.living(), `${this.card(c).name}: which player does it fall on?`);
-          this.s.instantDiscard = this.s.instantDiscard.filter(x => x !== c);
-          this.s.removed.push(c);
-          if (target) {
-            this.log(`${p.name}'s Specter unleashes ${this.card(c).name} on ${target.name}.`, 'specter', { player: p.id, target: target.id, cards: [c] });
-            yield* this.resolveCard(this.card(c), target);
-            yield* this.flushDeaths();
+    const explore = (path: readonly number[]): boolean => {
+      const flags = new FlagStore(base as FlagSnapshot);
+      const runner = new DialogueRunner(script, this.content.speakers, flags);
+      let depth = 0;
+      for (let i = 0; i < 500 && !runner.done; i++) {
+        const view = runner.view();
+        if (view.kind === 'choice') {
+          if (depth < path.length) {
+            runner.choose(view.choices[path[depth]!]!.index);
+            depth++;
+            continue;
           }
+          if (changed(flags)) return true;
+          if (depth >= NEWS_CHOICE_DEPTH) return false;
+          return view.choices.some((_, k) => explore([...path, k]));
         }
+        runner.advance();
       }
-    } catch (e) {
-      if (!(e instanceof EndTurn)) throw e;
-    }
-    this.expire(x => x.at === 'turnEnd' && x.player === p.id);
-    this.s.turn = null;
-  }
-
-  // ---------------------------------------------------------------- winning (Section 8)
-
-  *claim(p: PlayerState): Flow {
-    this.log(`${p.name} claims Elodie's Throne!`, 'claim', { player: p.id, tag: this.claimRoute(p) ?? undefined });
-    const challengers: PlayerState[] = [];
-    for (const o of this.seatsAfter(p)) {
-      if (!this.eligible(o)) continue;
-      if (yield* this.ask(o, 'challenge', `${p.name} claims the Throne. Challenge them?`,
-        [{ label: 'Challenge!', value: true }, { label: 'Let it stand', value: false }], { claimant: p.id })) {
-        challengers.push(o);
-        this.log(`${o.name} challenges!`, 'challenge', { player: o.id, target: p.id });
-      }
-    }
-    for (const c of challengers) {
-      if (c.specter) continue;
-      const survived = yield* this.challengeFight(p, c);
-      if (!survived) {
-        this.log(`${p.name}'s claim fails.`, 'claim', { player: p.id });
-        throw new EndTurn();
-      }
-    }
-    this.s.winner = p.id;
-    this.s.endReason = challengers.length ? `${p.name} defeated every challenger and took the Throne.` : `${p.name} claimed the Throne unchallenged.`;
-    this.log(this.s.endReason, 'win', { player: p.id });
-  }
-
-  // Returns true if the claimant survives.
-  *challengeFight(claimant: PlayerState, challenger: PlayerState): Flow<boolean> {
-    const order = this.s.config.challengeFirstStriker === 'claimant' ? [claimant, challenger] : [challenger, claimant];
-    const gen = { claimant: claimant.gen, challenger: challenger.gen };
-    this.inChallenge = true;
-    try {
-      for (let blow = 0; blow < MAX_FIGHT_BLOWS; blow++) {
-        const [a, d] = blow % 2 === 0 ? order : [order[1], order[0]];
-        yield* this.attack(a, d, 'challenge');
-        if (claimant.gen !== gen.claimant || claimant.specter) return false;
-        if (challenger.gen !== gen.challenger || challenger.specter) return true;
-      }
-      return true;
-    } finally {
-      this.inChallenge = false;
-    }
-  }
-
-  // Sudden Death: highest combined total, then the tie-break chain.
-  suddenDeath() {
-    let field = this.living();
-    if (!field.length) field = [...this.s.players];
-    const best = (score: (p: PlayerState) => number) => {
-      const top = Math.max(...field.map(score));
-      field = field.filter(p => score(p) === top);
+      return changed(flags);
     };
-    best(p => this.total(p));
-    if (field.length > 1) best(p => Math.max(...PILLARS.map(x => p.res[x])));
-    if (field.length > 1) best(p => p.kills);
-    if (field.length > 1) best(p => p.reckonings);
-    let winner = field[0];
-    let reason = 'highest combined resources';
-    if (field.length > 1) {
-      // The earliest seat fights the next; the winner fights on with the Heart Tokens they have left.
-      reason = 'a final duel';
-      field.sort((a, b) => this.s.order.indexOf(a.id) - this.s.order.indexOf(b.id));
-      const hp: Record<number, number> = Object.fromEntries(field.map(p => [p.id, p.hp]));
-      winner = field[0];
-      for (const next of field.slice(1)) winner = this.duel(winner, next, hp);
-    }
-    this.s.winner = winner.id;
-    this.s.endReason = `Sudden Death after round ${this.s.round}: ${winner.name} wins on ${reason}.`;
-    this.log(this.s.endReason, 'win', { player: winner.id });
+    return explore([]);
   }
 
-  // Tie-break duel: trade blows (damage = current HP, at most TUNING.bigTableHeartCap at big tables, no bonuses) until one falls. Earlier in turn order strikes
-  // first. `hp` carries the Heart Tokens left between duels (it is updated in place).
-  duel(a: PlayerState, b: PlayerState, hp: Record<number, number> = { [a.id]: a.hp, [b.id]: b.hp }): PlayerState {
-    const [first, second] = this.s.order.indexOf(a.id) < this.s.order.indexOf(b.id) ? [a, b] : [b, a];
-    for (let blow = 0; blow < MAX_FIGHT_BLOWS; blow++) {
-      const [x, y] = blow % 2 === 0 ? [first, second] : [second, first];
-      hp[y.id] -= Math.min(TUNING.maxDamage, Math.max(1, this.heartDamage(hp[x.id])));
-      this.log(`Duel: ${x.name} strikes ${y.name}.`, 'attack', { player: x.id, target: y.id });
-      if (hp[y.id] <= 0) return x;
-    }
-    return first;
+  /**
+   * The Echo swap (guide 6.1). Allowed only in an active Echo Zone and only onto a tile that is open
+   * in the other era; the position is kept. Returning to the present wipes the memory's own `echo.`
+   * flags, so only anchors (their `anchor.` flags) carry changes back.
+   */
+  /** Whether an Echo would work where the player stands (and why not). */
+  swapCheck(): SwapCheck {
+    const p = this.state.player;
+    return checkSwap(this.map, p.era, p.pos, this.state.flags);
   }
 
-  // ---------------------------------------------------------------- the game loop
-
-  *run(): Flow {
-    try {
-      for (;;) {
-        this.s.round++;
-        this.log(`Round ${this.s.round} begins.`, 'round');
-        for (const id of this.s.order) {
-          const p = this.p(id);
-          if (p.specter) yield* this.specterTurn(p);
-          else {
-            yield* this.playTurn(p);
-            while (p.extraTurn && !p.specter) {
-              p.extraTurn = false;
-              yield* this.playTurn(p, true);
-            }
-          }
-          if (this.s.winner !== null) throw new GameOver();
-        }
-        this.expire(x => x.at === 'roundEnd' && x.round <= this.s.round);
-        if (this.s.round >= this.s.config.suddenDeathRound) {
-          this.suddenDeath();
-          throw new GameOver();
-        }
+  swap(): Effect[] {
+    if (this.mode !== 'field') return [];
+    const p = this.state.player;
+    const check = checkSwap(this.map, p.era, p.pos, this.state.flags);
+    const m = this.content.messages;
+    if (!check.ok) {
+      const text = check.reason === 'no_zone' ? m.noZone : check.reason === 'locked' ? m.locked : m.blocked;
+      return [{ kind: 'refused', text }];
+    }
+    p.era = check.to;
+    let changed: Effect | null = null;
+    if (check.to === 'present') {
+      for (const name of Object.keys(this.state.flags.snapshot())) {
+        if (name.startsWith(ECHO_FLAG_PREFIX)) this.state.flags.clear(name);
       }
-    } catch (e) {
-      if (!(e instanceof GameOver)) throw e;
+      changed = this.anchorChanges();
+      this.anchorsAtEntry = null;
+    } else {
+      this.anchorsAtEntry = new Set(this.map.anchors.map((a) => a.flag).filter((f) => this.state.flags.isSet(f)));
     }
+    const effects: Effect[] = [
+      { kind: 'era', era: check.to },
+      { kind: 'sync' },
+      { kind: 'toast', text: check.to === 'echo' ? m.enterEcho : m.leaveEcho },
+    ];
+    if (changed) effects.push(changed);
+    const scene = check.to === 'echo' ? check.zone.onEcho : check.zone.onReturn;
+    if (scene) effects.push(...this.startDialogue(scene));
+    return effects;
+  }
+
+  /** Anchors set during this visit to the memory, and the present objects that read them. */
+  private anchorChanges(): Effect | null {
+    if (!this.anchorsAtEntry) return null;
+    const before = this.anchorsAtEntry;
+    const flags = this.map.anchors.map((a) => a.flag).filter((f) => this.state.flags.isSet(f) && !before.has(f));
+    if (flags.length === 0) return null;
+    const objects = this.objects('present')
+      .filter((o) => flagsIn(o.if).some((f) => flags.includes(f)))
+      .map((o) => o.id);
+    return { kind: 'changed', objects, flags };
+  }
+
+  // ---- Dialogue ------------------------------------------------------------------------------
+
+  /** Start a dialogue; `after` effects are returned when it ends (or at once if it shows nothing). */
+  startDialogue(id: string, after: Effect[] = []): Effect[] {
+    const debate = this.content.debates?.[id];
+    if (debate) {
+      const ctx = this.content.debateContext?.(this.state.flags, debate) ?? { influence: 0, mediateNeeds: Infinity };
+      return this.startScript(debateScript(debate, this.state.flags, ctx), after);
+    }
+    const script = this.content.dialogue[id];
+    if (!script) throw new Error(`Unknown dialogue ${id}`);
+    return this.startScript(script, after);
+  }
+
+  private startScript(script: DialogueScript, after: Effect[] = []): Effect[] {
+    this.runner = new DialogueRunner(script, this.content.speakers, this.state.flags);
+    this.afterDialogue = after;
+    if (this.runner.done) return this.finishDialogue();
+    this.mode = 'dialogue';
+    return [{ kind: 'dialogue' }];
+  }
+
+  /** The conversation running now, if any. */
+  get dialogueId(): string | null {
+    return this.mode === 'dialogue' ? (this.runner?.scriptId ?? null) : null;
+  }
+
+  view(): DialogueView {
+    return this.runner?.view() ?? { kind: 'end' };
+  }
+
+  /** Move past the current line (no effect while a choice waits). */
+  advance(): Effect[] {
+    if (this.mode !== 'dialogue' || !this.runner) return [];
+    this.runner.advance();
+    return this.runner.done ? this.finishDialogue() : [];
+  }
+
+  choose(index: number): Effect[] {
+    if (this.mode !== 'dialogue' || !this.runner) return [];
+    this.runner.choose(index);
+    return this.runner.done ? this.finishDialogue() : [];
+  }
+
+  closeCard(): Effect[] {
+    if (this.mode !== 'card') return [];
+    this.mode = 'field';
+    this.card = null;
+    return [{ kind: 'sync' }];
+  }
+
+  // ---- Internals -----------------------------------------------------------------------------
+
+  private canFire(t: Trigger): boolean {
+    return !(t.once && t.flag && this.state.flags.isSet(t.flag));
+  }
+
+  private fire(t: Trigger): Effect[] {
+    if (t.flag) this.state.flags.set(t.flag, true);
+    if (t.dialogue) return this.startDialogue(t.dialogue, [{ kind: 'save' }]);
+    return [{ kind: 'sync' }, { kind: 'save' }];
+  }
+
+  private finishDialogue(): Effect[] {
+    this.runner = null;
+    this.mode = 'field';
+    const effects: Effect[] = [...this.afterDialogue, { kind: 'sync' }];
+    this.afterDialogue = [];
+    const flags = this.state.flags;
+    const battle = flags.get('battle.next');
+    if (typeof battle === 'string' && battle) {
+      flags.clear('battle.next');
+      effects.push({ kind: 'battle', battle });
+    }
+    const card = this.content.cards.find((c) => flags.isSet(c.when) && !flags.isSet(cardFlag(c)));
+    if (card) {
+      flags.set(cardFlag(card), true);
+      this.mode = 'card';
+      this.card = card;
+      effects.push({ kind: 'card', card }, { kind: 'save' }); // the end of an act is always saved
+    }
+    return effects;
   }
 }
 
-export const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
-export const roman = (n: number) => ['I', 'II', 'III', 'IV'][n - 1] ?? String(n);
-export { throneDistance };
+/** A group from an encounter table, by weight. */
+function pickGroup(table: EncounterTable, rng: Rng): EncounterGroup {
+  const total = table.groups.reduce((n, g) => n + (g.weight ?? 1), 0);
+  let roll = rng.next() * total;
+  for (const g of table.groups) {
+    roll -= g.weight ?? 1;
+    if (roll < 0) return g;
+  }
+  return table.groups[table.groups.length - 1]!;
+}
+
+export { encounterFlag };
+
+/**
+ * The stand-in for a fight until Phase 3 battles exist: the foes appear, Fight always wins, Run
+ * always escapes. Both outcomes are remembered as flags so later scenes (and the battle system) can
+ * read them.
+ */
+export function encounterScript(table: EncounterTable, group: EncounterGroup): DialogueScript {
+  return {
+    id: `encounter.${table.id}.${group.id}`,
+    start: 'appear',
+    nodes: {
+      appear: {
+        lines: [{ text: group.intro, fx: 'shake' }],
+        choices: [
+          { text: 'Fight', next: 'won' },
+          { text: 'Run', next: 'fled' },
+        ],
+      },
+      won: { set: { [encounterFlag(table.id, group.id, 'won')]: true }, lines: [{ text: group.won }] },
+      fled: { set: { [encounterFlag(table.id, group.id, 'fled')]: true }, lines: [{ text: group.fled }] },
+    },
+  };
+}
+
+/** The one-line description an object shows when it has no dialogue of its own (no speaker). */
+function inspectScript(objectId: string, text: string): DialogueScript {
+  return { id: `inspect.${objectId}`, start: 'look', nodes: { look: { lines: [{ text }] } } };
+}

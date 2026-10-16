@@ -1,106 +1,94 @@
-// The shapes that card and house content (in src/data) must provide. The engine only knows these.
-import type { Game } from './game';
-import type { Flow, Gen, HouseId, Pillar, PlayerState, Pos, TileType } from './types';
+// The shapes of game content the engine runs (the content itself lives in src/data).
 
-export interface AttackInfo {
-  attacker: number;
-  target: number;
-  kind: 'basic' | 'card' | 'challenge' | 'trial';
-  damage: number;            // what would land if not negated
-}
+import type { DebateContext, DebateDef } from './debate.ts';
+import type { DialogueScript, Speaker } from './dialogue.ts';
+import type { FlagReader } from './flags.ts';
 
-// Reaction cards (rules-decisions 61): Hand Cards held and played on another player's turn, at one moment.
-export type ReactionKind = 'omen' | 'intercept' | 'interference' | 'embargo' | 'ambush' | 'turnabout';
-
-export interface CardDef {
-  id: number;
-  name: string;
-  kind: 'hand' | 'instant';
-  category: string;
-  text: string;
-  elodie?: boolean;
-  flavor?: string;
-  aggressive?: boolean;      // counts against Stillwater's Long Watch
-  noSpecter?: boolean;       // causes HP loss, so a Specter can't play it
-  responseOnly?: boolean;    // Block/Deflect and Counterspell: never played on your own turn
-  namesTarget?: boolean;     // the player is named first, then others may Interfere (rules-decisions 79)
-  targets?: boolean;         // a Target card (marked ◎): Counterspell and Turnabout can answer it (rules-decisions 84)
-  // Block/Deflect: can it answer this attack, and what happens when it does.
-  block?: {
-    canUse: (g: Game, defender: PlayerState, attack: AttackInfo) => boolean;
-    resolve: (g: Game, defender: PlayerState, attack: AttackInfo) => Flow<'negate' | 'survive1'>;
-  };
-  counterspell?: boolean;
-  reaction?: ReactionKind;
-  timing?: string;           // reminder printed under the divider, e.g. "Play when a rival rolls to move"
-  // Can this Hand Card be played right now (on your own turn)?
-  playable?: (g: Game, p: PlayerState) => boolean;
-  effect: (g: Game, self: PlayerState, card: CardDef) => Flow;
-  // Cards that wait for your next basic attack (Plunder, Vanishing Act): runs once it resolves.
-  // damage is 0 if the attack was negated.
-  afterAttack?: (g: Game, self: PlayerState, damage: number) => Flow;
-}
-
-export interface PassiveHooks {
-  tileBonus?: (pillar: Pillar, level: number) => number;
-  wealthBonus?: (level: number) => number;          // once per turn, on Wealth from anything but a tile
-  moveBonus?: (level: number) => number;
-  reach?: (level: number) => number;               // basic attack reach in a straight line
-  basicAttackBonus?: (level: number) => number;
-  fearOnKill?: (level: number) => number;
-  fearOnLanded?: (level: number) => number;
-  stepOnLanded?: (level: number) => number;        // free steps after landing an attack
-  peeksPerRound?: (level: number) => number;
-  reckoningCancels?: (level: number) => number;
-  unbroken?: (level: number) => number;            // 1: once per heir, a killing attack while at 2+ Heart Tokens leaves 1
-}
-
-export interface Ability {
+export interface NpcDef {
   id: string;
-  name: string;
-  text: string;
-  gen: Gen;                                        // generation it unlocks at
-  limit: 'turn' | 'round' | 'game';
-  uses?: (g: Game, p: PlayerState) => number;      // how many per limit window (default 1)
-  canUse?: (g: Game, p: PlayerState) => boolean;
-  run: (g: Game, p: PlayerState) => Flow;
+  /** Sprite key in assets.config.ts NPC_SPRITES. */
+  look: string;
+  /** Dialogue id in data/dialogue.ts. */
+  dialogue: string;
+  /** Shown on the name label when the player faces them (a name, or a role). */
+  name?: string;
+  /** A vendor: after their greeting, this shop opens (data/rpg.ts SHOPS). */
+  shop?: string;
 }
 
-export interface HouseDef {
-  id: HouseId;
+/**
+ * What the player learns about a puzzle object (keyed by its id in the maps): the name label shown
+ * when facing it, and a one-line description that A shows when the object has no dialogue of its own.
+ */
+export interface ObjectInfo {
   name: string;
-  homeland: string;
-  identity: string;
-  curve: string;
-  lore: string;
-  tileType: TileType;
-  home: Pos;
-  hp: [number, number, number, number];
-  heirs: [string, string, string, string];         // the character of each generation, Gen I to IV (rules-decisions 86)
-  passiveName: string;
-  passiveText: [string, string];                   // Gen I, Gen III upgrade
-  passive: PassiveHooks;
-  // The passive as printed on this house's Legacy card, when another house holds it as a Legacy (Yaguana's Ancestor's
-  // Voice and Song of Coaybay). Omitted: the Legacy is the Gen I passive above (rules-decisions 87).
-  legacyPassive?: { text: string; hooks: PassiveHooks };
-  passiveAbility?: Ability;                        // usable by anyone holding this passive (Suzumori's peek)
-  abilities: Ability[];                            // generation abilities, cumulative
-  // House rules that are not passives (cannot be copied).
-  attackBeforeMove?: (gen: Gen) => boolean;
-  halfMoveOnKill?: (gen: Gen) => boolean;
-  longWatch?: (gen: Gen) => boolean;
-  claimReduction?: (gen: Gen) => number;
-  mostFearedDownside?: (gen: Gen) => boolean;
-  legacyOnDeath?: boolean;                         // Yaguana
-  keepsOnDeath?: (gen: Gen) => boolean;            // the dying character loses no pool (Yaguana's Areíto)
-  legacyDrawTwoAt?: Gen;                           // Yaguana III (old rule)
-  startsWithLegacy?: boolean;                      // Yaguana's Ancestor's Voice: a Legacy from the start (rules-decisions 83)
-  legacyUpgradeAt?: Gen;                           // the Legacy works at its upgraded (Gen III) strength from here
-  extraPassiveAt?: Gen;                            // Yaguana IV
-  downsideText?: string;
+  inspect?: string;
 }
 
-export interface Content {
-  houses: Record<HouseId, HouseDef>;
-  cards: CardDef[];
+/** A full-screen card shown once when its flag is set (e.g. the end of an act). */
+export interface CardDef {
+  id: string;
+  /** Shown after a dialogue ends while this flag is set, once (remembered as `card.<id>`). */
+  when: string;
+  title: string;
+  lines: string[];
+}
+
+/** Short system messages (toasts). */
+export interface Messages {
+  /** Echo pressed outside an Echo Zone. */
+  noZone: string;
+  /** In a zone whose condition does not hold yet (no Sun Locket, or too early in the story). */
+  locked: string;
+  /** The tile is not open in the other era (guide 6.1). */
+  blocked: string;
+  /** Walking into a door inside the memory. */
+  doorInEcho: string;
+  enterEcho: string;
+  leaveEcho: string;
+}
+
+/** One kind of ambush in a wild section: who jumps out, and how it reads before the fight. */
+export interface EncounterGroup {
+  id: string;
+  /** Relative chance within its table (default 1). */
+  weight?: number;
+  /** The foes, by name, for the battle (Phase 3) and the stand-in. */
+  foes: readonly string[];
+  /** Their level (the menu's Foes page colours it against the party's). */
+  level: number;
+  /** The line shown when they appear. */
+  intro: string;
+  /** The line shown after winning (until Phase 3 battles exist, the stand-in ends here). */
+  won: string;
+  /** The line shown after running away. */
+  fled: string;
+}
+
+/** The ambushes a wild section can throw at the player (map layer `encounters`, property `table`). */
+export interface EncounterTable {
+  id: string;
+  groups: readonly EncounterGroup[];
+}
+
+export interface GameContent {
+  npcs: Readonly<Record<string, NpcDef>>;
+  dialogue: Readonly<Record<string, DialogueScript>>;
+  speakers: Readonly<Record<string, Speaker>>;
+  cards: readonly CardDef[];
+  messages: Messages;
+  /** Names and descriptions of puzzle objects, by object id. */
+  objects?: Readonly<Record<string, ObjectInfo>>;
+  /** Name labels for doors, by `<map id>/<door id>` or a bare door id ("Limyè house"). */
+  doors?: Readonly<Record<string, string>>;
+  /** Random encounter tables, by id. */
+  encounters?: Readonly<Record<string, EncounterTable>>;
+  /** Street debates, by the dialogue id an NPC uses to start one (`debate:<id>`). */
+  debates?: Readonly<Record<string, DebateDef>>;
+  /** Influence in a debate's city now, and what Mediate needs (the RPG content knows the pillars). */
+  debateContext?: (flags: FlagReader, def: DebateDef) => DebateContext;
+}
+
+export function cardFlag(card: CardDef): string {
+  return `card.${card.id}`;
 }
