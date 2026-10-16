@@ -3,6 +3,7 @@
 > **Chapter 1 demo.** This repository is the quest alone, copied from the main project for testers
 > (the board game is not included). Chapter 2 arrives November 22. Run it with `npm install` and
 > `npm run dev` here, at the top of the repository.
+> Play it online: https://elodiedemo.netlify.app
 
 A single-player pixel RPG set in the world of the Bloodlines board game. The design lives in
 `../docs/quest/QUEST-BUILD-GUIDE.md`. This folder is a self-contained project: its own
