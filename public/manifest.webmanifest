@@ -1,6 +1,6 @@
 {
-  "name": "Bloodlines: Echoes of Zetwal",
-  "short_name": "Echoes",
+  "name": "Bloodlines: Echoes of Zetwal (Beta)",
+  "short_name": "Echoes Beta",
   "description": "A pixel RPG in the world of the Bloodlines board game.",
   "start_url": "./",
   "scope": "./",

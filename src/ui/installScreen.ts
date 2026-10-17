@@ -40,7 +40,7 @@ export function mountInstallScreen(gate: Exclude<InstallGate, 'play'>): void {
   icon.alt = '';
   const title = document.createElement('h1');
   title.id = 'install-title';
-  title.textContent = 'Bloodlines: Echoes of Zetwal';
+  title.textContent = 'Bloodlines: Echoes of Zetwal (Beta)';
   const lead = document.createElement('p');
   lead.className = 'install-lead';
   lead.textContent = 'On a phone or tablet, Echoes plays as an app. Add it to your home screen first: it is free and takes a few seconds.';

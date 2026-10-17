@@ -283,6 +283,24 @@ body.standalone .fs-button { display: none; }
   border-radius: 6px;
 }
 
+/* The demo is a beta (owner request, Oct 17): a small tag over the top of the screen, never in the way. */
+.beta-badge {
+  position: fixed;
+  z-index: 12;
+  top: calc(var(--vv-top, 0px) + 4px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(20, 16, 26, 0.55);
+  color: #f2c14e;
+  font: 700 10px/14px 'Atkinson Hyperlegible', system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  opacity: 0.8;
+  pointer-events: none;
+  user-select: none;
+}
+
 .rotate-hint { display: none; }
 @media (orientation: portrait) {
   body.touch .rotate-hint {
