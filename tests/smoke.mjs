@@ -434,6 +434,8 @@ const frames = (page) => page.evaluate(() => new Promise((r) => requestAnimation
 
 /** Press A until the typewriter has finished the current line. */
 async function finishTyping(page) {
+  // A scene being acted out (stage directions): wait until the actors are in place and the line shows.
+  await page.waitForFunction(() => !window.__quest.snapshot().stage?.busy, null, { timeout: 30000 });
   for (let i = 0; i < 10; i++) {
     const s = await snap(page);
     if (s.mode === 'showcase' || !s.dialogue?.typing) return s;

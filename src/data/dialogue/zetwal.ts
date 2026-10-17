@@ -105,7 +105,12 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
         { text: 'Anissa. Stay close to your sister.' },
         say(A, '...I will.'),
         { text: 'The Gaze sees you both. So do I.' },
-        nar("Mother's carriage rolls out through the east gate, toward the Throne.", { fx: 'fade', set: { 'story.elodie_left': true } }),
+        // Staged (owner rule, Oct 17): she walks out through the gate to her carriage.
+        nar("Mother's carriage rolls out through the east gate, toward the Throne.", {
+          fx: 'fade',
+          set: { 'story.elodie_left': true },
+          stage: [{ do: 'exit', actor: 'npc:elodie', to: { x: 39, y: 19 } }],
+        }),
       ],
     },
   }),
@@ -620,7 +625,13 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
         { text: 'There you are. Did your mother get away?' },
         say(G, 'Her carriage just left.'),
         { text: "Good. Then she can't scold me for this." },
-        nar('Grandmother opens a drawer in the map table and takes out a small gold locket shaped like the sun.'),
+        nar('Grandmother opens a drawer in the map table and takes out a small gold locket shaped like the sun.', {
+          stage: [
+            { do: 'face', actor: 'npc:anicette', facing: 'right' },
+            { do: 'wait', ms: 1100 },
+            { do: 'face', actor: 'npc:anicette', facing: 'player' },
+          ],
+        }),
         { text: 'Your grandfather made this the year of the Accord. Two halves of a promise, he said. This half is ours.' },
         { text: 'It remembers, Gianna. Where the air shimmers, it will show you what that place remembers.' },
         say(G, 'Grandmother, that sounds like a story for children.'),
