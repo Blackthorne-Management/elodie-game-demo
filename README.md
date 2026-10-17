@@ -27,10 +27,17 @@ URL options: `?map=test-village` starts a new game (when there is no save) on an
 `?hintms=3000` makes Anissa's first hint come after 3 s instead of 3 minutes; `?touch=1` forces the
 touch overlay.
 
-**Phones play from the home screen.** On a phone or tablet in the browser the quest shows how to add it to
-the home screen instead of starting (owner decision, Oct 16; `src/engine/install.ts`). Computers play in the
-browser. The dev server (`npm run dev`) skips the screen so a phone on the same Wi-Fi can test in the
-browser; `?install=1` shows it anyway, `?install=0` skips it.
+**Phones are shown how to install first.** On a phone or tablet in the browser the quest shows how to add it
+to the home screen (owner decision, Oct 16; `src/engine/install.ts`), with **Play here anyway** under the steps
+for browsers that cannot install, such as a chat app's (Oct 17; the choice is remembered on the device).
+Computers play in the browser. The dev server (`npm run dev`) skips the screen so a phone on the same Wi-Fi can
+test in the browser; `?install=1` shows it anyway, `?install=0` skips it.
+
+**What's new (Oct 17, from the independent review):** a festival crowd on the plaza and pilgrims on the temple
+path; the lamp night acted out (the lanterns catch, the names are read, a hooded figure slips away to the dock);
+Yari comes up from her canoe and then walks with the party; the bridge puzzle waits for the night orders; the
+boar waits for Yari and lasts long enough to teach its lessons, with the tutorial shown as things come up; and
+Chapter 1 ends over the plaza at dawn.
 
 Controls:
 
