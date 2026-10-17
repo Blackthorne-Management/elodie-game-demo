@@ -36,8 +36,8 @@ test in the browser; `?install=1` shows it anyway, `?install=0` skips it.
 **What's new (Oct 17, from the independent review):** a festival crowd on the plaza and pilgrims on the temple
 path; the lamp night acted out (the lanterns catch, the names are read, a hooded figure slips away to the dock);
 Yari comes up from her canoe and then walks with the party; the bridge puzzle waits for the night orders; the
-boar waits for Yari and lasts long enough to teach its lessons, with the tutorial shown as things come up; and
-Chapter 1 ends over the plaza at dawn.
+boar waits for Yari and lasts long enough to teach its lessons, with the tutorial shown as things come up;
+Chapter 1 ends over the plaza at dawn; and a tidier layout on a phone held upright (bigger controls).
 
 Controls:
 
