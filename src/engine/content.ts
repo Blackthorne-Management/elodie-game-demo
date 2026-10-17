@@ -59,7 +59,7 @@ export interface EncounterGroup {
   level: number;
   /** The line shown when they appear. */
   intro: string;
-  /** The line shown after winning (until Phase 3 battles exist, the stand-in ends here). */
+  /** The line shown after winning the text stand-in for a fight (encounterScript). */
   won: string;
   /** The line shown after running away. */
   fled: string;
