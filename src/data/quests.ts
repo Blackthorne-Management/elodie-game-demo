@@ -14,6 +14,7 @@ export const ACT1: QuestDef = {
       title: "Mother's address",
       detail: 'Mother speaks from the stage at the north of the plaza. Go and listen.',
       done: { flag: 'story.heard_speech' },
+      goals: [{ map: 'zetwal-town', at: { x: 17, y: 4 } }],
       hints: [
         "Gigi... isn't Mother about to speak? Everyone's going north.",
         'The stage is at the top of the plaza, past the fountain.',
@@ -25,6 +26,7 @@ export const ACT1: QuestDef = {
       title: 'See Mother off',
       detail: 'Her carriage waits at the east gate, at the end of the road south-east of the plaza.',
       done: { flag: 'story.elodie_left' },
+      goals: [{ map: 'zetwal-town', at: { x: 36, y: 20 } }],
       hints: [
         'Mother said the east gate. She will not wait forever.',
         'The road goes east from below the plaza, all the way to the gate.',
@@ -36,6 +38,7 @@ export const ACT1: QuestDef = {
       title: 'Grandmother is waiting',
       detail: "Mother says Grandmother Anicette has something for you, at home in Grandfather's study.",
       done: { flag: 'item.sun_locket' },
+      goals: [{ map: 'zetwal-house', at: { x: 12, y: 4 } }],
       hints: [
         'Grandmother is at home. I want to see what she has for you.',
         'Home is the house on the north-west side of the plaza.',
@@ -47,6 +50,7 @@ export const ACT1: QuestDef = {
       title: 'What the Locket remembers',
       detail: 'Stand on the shimmering tiles by the map table and press Echo. Then talk to the people there.',
       done: { flag: 'story.warroom_echo' },
+      goals: [{ map: 'zetwal-house', at: { x: 14, y: 6 } }],
       hints: [
         'The air by the map table is shimmering, Gigi. Do you see it?',
         'Stand on the shimmering tiles and press Echo. I will hold the door.',
@@ -58,6 +62,7 @@ export const ACT1: QuestDef = {
       title: 'Leave word for later',
       detail: 'Grandfather keeps copies of his papers under the loose board by the window seat. Leave the night orders there.',
       done: { flag: 'anchor.night_orders' },
+      goals: [{ map: 'zetwal-house', at: { x: 17, y: 2 } }],
       hints: [
         "Grandfather hid things for later, didn't he? Grandmother always says so.",
         'The aide said where the copy goes: the loose board by the window.',
@@ -69,6 +74,10 @@ export const ACT1: QuestDef = {
       title: 'Fifty years under the floor',
       detail: 'Return to the present on the shimmering tiles, then look under the window seat.',
       done: { flag: 'clue.night_orders' },
+      goals: [
+        { if: { notFlag: 'story.warroom_returned' }, map: 'zetwal-house', at: { x: 14, y: 6 } },
+        { map: 'zetwal-house', at: { x: 17, y: 2 } },
+      ],
       hints: [
         'Come back, Gigi. I want to see if it is still there.',
         'Press Echo on the shimmering tiles to come back, then look under the window seat.',
@@ -80,6 +89,12 @@ export const ACT1: QuestDef = {
       title: 'Cross to the Temple island',
       detail: 'The rope bridge has fallen. The night orders: turn the winch to lower the Chain Bridge, then drive the iron pin through the pawl.',
       done: { flag: 'story.bridge_crossed' },
+      goals: [
+        { if: { flag: 'anchor.chain_bridge' }, map: 'zetwal-town', at: { x: 31, y: 9 } },
+        { if: { flag: 'story.winch_lowered' }, map: 'zetwal-town', at: { x: 29, y: 8 } },
+        { if: { flag: 'story.bridge_echo_seen' }, map: 'zetwal-town', at: { x: 28, y: 8 } },
+        { map: 'zetwal-town', at: { x: 28, y: 10 } },
+      ],
       hints: [
         'Gigi, what if the old bridge could just... go back?',
         'The air shimmers at the bridgehead, by the old winch. Grandfather was there that night.',
@@ -91,6 +106,7 @@ export const ACT1: QuestDef = {
       title: 'Find Grandfather',
       detail: 'Grandfather is at the Gaze lamp, inside the temple.',
       done: { flag: 'story.met_patricio' },
+      goals: [{ map: 'zetwal-temple', at: { x: 13, y: 3 } }],
       hints: [
         'Grandfather will be at the lamp. He always is, on this night.',
         "The temple is north of the landing. He'll be inside, by the lamp.",
@@ -102,6 +118,7 @@ export const ACT1: QuestDef = {
       title: 'The reading of the names',
       detail: 'The Gaze lamp will not take a flame. Grandfather asks you to try.',
       done: { flag: 'story.anissa_woke' },
+      goals: [{ map: 'zetwal-temple', at: { x: 14, y: 3 } }],
       hints: [
         'Will you try the lamp, Gigi? Grandfather asked you.',
         'Stand in front of the lamp and try to light it.',
@@ -113,6 +130,7 @@ export const ACT1: QuestDef = {
       title: 'A canoe at the dock',
       detail: 'Someone has come across the water to the island dock, south of the temple.',
       done: { flag: 'story.yari_asked' },
+      goals: [{ map: 'zetwal-temple', at: { x: 14, y: 12 } }],
       hints: [
         'Someone came across the water. I saw a canoe.',
         'The dock is at the south end of the island.',
@@ -125,6 +143,12 @@ export const ACT1: QuestDef = {
       title: "The envoy's papers",
       detail: "The Crown boards every boat at Xaraguá. Ask the clerk at the Hall of the Accord, up the steps at the head of the plaza, for envoy papers.",
       done: { flag: 'story.envoy_papers' },
+      goals: [
+        { if: { flag: 'story.papers_sealed' }, map: 'zetwal-hall', at: { x: 32, y: 5 } },
+        { if: { flag: 'item.elodie_seal' }, map: 'zetwal-hall', at: { x: 21, y: 25 } },
+        { if: { flag: 'story.papers_asked' }, map: 'zetwal-market', at: { x: 28, y: 13 } },
+        { map: 'zetwal-hall', at: { x: 21, y: 25 } },
+      ],
       hints: [
         'Yari said we need papers, Gigi. The Hall writes them.',
         "The Hall of the Accord is up the steps at the head of the plaza. The clerk needs Mother's seal; the engraver in the Iron Market has it.",
@@ -137,6 +161,7 @@ export const ACT1: QuestDef = {
       title: 'The boar on the Cane Road',
       detail: 'A boar is charging the cane cutters on the Cane Road, past the east gate. Yari will not sail until it is dealt with.',
       done: { flag: 'encounter.wilds.boar.won' },
+      goals: [{ map: 'zetwal-road', at: { x: 9, y: 12 } }],
       hints: [
         "Yari won't leave the cane cutters with that boar, Gigi. Neither will I.",
         'The Cane Road is past the east gate, at the end of the road south-east of the plaza.',
@@ -148,6 +173,7 @@ export const ACT1: QuestDef = {
       title: 'Before the tide',
       detail: "Yari's canoe waits at the island dock. Finish your work in Pòdlimyè (your Quests page lists it), then go to the canoe and sail.",
       done: { flag: 'act1.complete' },
+      goals: [{ map: 'zetwal-temple', at: { x: 16, y: 18 } }],
       hints: [
         "Yari's canoe is at the island dock. Are we going soon, Gigi?",
         'Finish your errands in the city first if you like. Then go to the canoe at the dock.',
@@ -184,3 +210,6 @@ export const JOURNAL_NOTES: readonly JournalNote[] = [
     text: 'The Chain Bridge is down in the present: young Patricio pinned the pawl, and it has held for fifty years.',
   },
 ];
+
+/** Every chapter, in order (the demo has one; the full game adds Chapter 2): the Journal and the quest arrows. */
+export const CHAPTERS: readonly QuestDef[] = [ACT1];
