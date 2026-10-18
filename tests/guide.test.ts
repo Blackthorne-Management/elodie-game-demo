@@ -41,7 +41,8 @@ describe('every goal is real', () => {
   ];
 
   it('every objective and every side-quest step has a goal, on a map that exists, inside it', () => {
-    for (const q of CHAPTERS) for (const o of q.objectives) expect(o.goals?.length, `${q.id}/${o.id}`).toBeGreaterThan(0);
+    // An objective that follows the side quests (followSide) points at their goals instead of its own.
+    for (const q of CHAPTERS) for (const o of q.objectives) if (!o.followSide) expect(o.goals?.length, `${q.id}/${o.id}`).toBeGreaterThan(0);
     for (const q of SIDE_QUESTS) q.steps.forEach((s, i) => expect(s.goals?.length, `${q.id} step ${i}`).toBeGreaterThan(0));
     for (const { who, g } of goals) {
       const m = maps[g.map];
@@ -61,7 +62,7 @@ describe('the arrows follow the scripted route (every chapter it plays)', () => 
     const mapId = sim.logic.state.player.mapId;
     const quest = questForJournal(CHAPTERS, mapId, flags);
     const before = quest ? currentObjective(quest, flags) : null;
-    const goal = storyGoal(quest, flags);
+    const goal = storyGoal(quest, flags, SIDE_QUESTS);
     if (before && sim.logic.mode === 'field') {
       steps++;
       if (!goal) problems.push(`${before.id}: no goal holds (on ${mapId})`);
@@ -121,6 +122,6 @@ describe('side quests not started yet are mystery quests', () => {
   it("each giver can be reached through the doors once the quest is available (the archive from the plaza)", () => {
     const f = new FlagStore({ 'story.warroom_echo': true, 'story.elodie_left': true, 'story.bridge_crossed': true, 'anchor.chain_bridge': true });
     for (const { id, goal } of mysteryGoals(SIDE_QUESTS, f)) expect(waypoint(maps, 'zetwal-town', goal, f), id).not.toBeNull();
-    expect(mysteryGoals(SIDE_QUESTS, f).map((m) => m.id).sort()).toEqual(['cane_name', 'overdue', 'soup']);
+    expect(mysteryGoals(SIDE_QUESTS, f).map((m) => m.id).sort()).toEqual(['cane_name', 'faith', 'overdue', 'soup']);
   });
 });

@@ -47,7 +47,8 @@ describe('Act I: Zetwal, start to finish', () => {
   });
 
   it('visits every Zetwal map and swaps eras', () => {
-    expect(new Set(maps)).toEqual(new Set(ACT1.maps));
+    // Chapter 1's maps and the temple archive (the Overdue Shelf, required before sailing).
+    expect(new Set(maps)).toEqual(new Set([...ACT1.maps, 'zetwal-archive']));
     expect(eras.filter((e) => e === 'echo').length).toBeGreaterThanOrEqual(2);
     expect(sim.log).toContain('Something old stirs here, but it will not open to you yet.');
   });
