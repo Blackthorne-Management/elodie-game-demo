@@ -38,8 +38,9 @@ path; the lamp night acted out (the lanterns catch, the names are read, a hooded
 Yari comes up from her canoe and then walks with the party; the bridge puzzle waits for the night orders; the
 boar waits for Yari and lasts long enough to teach its lessons, with the tutorial shown as things come up;
 Chapter 1 ends over the plaza at dawn; a tidier layout on a phone held upright (bigger controls); and quest
-arrows: a gold arrow at the edge of the screen and a dot on the minimap show where the story goes next (System >
-Quest arrows), and side quests not started yet show as mystery quests, with a nudge from Anissa.
+arrows: a gold arrow at the edge of the screen and a dot on the minimap show where the story goes next, a silver
+one the nearest side quest (System > Quest arrows), and side quests not started yet show as mystery quests, with
+Anissa's nudges in turn with her story hints.
 
 Controls:
 
