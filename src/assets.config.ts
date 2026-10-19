@@ -4,9 +4,9 @@
 // ART_FILES describes into quest/art/ and it is used instead of the placeholder (a missing file
 // keeps the placeholder). See docs/quest/ART-STYLE.md for sizes, layout and the palette.
 
-import { ENEMY_ART, ITEM_ART, OBJECT_ART, PALETTE, TILE_ART, WEAPON_ART, type BattleWeaponArt, type ObjectArt, type PixelArt } from './assets.pixels.ts';
+import { ECHO_SHIMMER, ENEMY_ART, ITEM_ART, OBJECT_ART, PALETTE, TILE_ART, WEAPON_ART, type BattleWeaponArt, type ObjectArt, type PixelArt } from './assets.pixels.ts';
 
-export { ENEMY_ART, ITEM_ART, OBJECT_ART, PALETTE, TILE_ART, WEAPON_ART, type BattleWeaponArt, type ObjectArt, type PixelArt };
+export { ECHO_SHIMMER, ENEMY_ART, ITEM_ART, OBJECT_ART, PALETTE, TILE_ART, WEAPON_ART, type BattleWeaponArt, type ObjectArt, type PixelArt };
 
 /** Pattern drawn on top of a placeholder tile's base colour so tiles read at a glance. */
 export type TilePattern = 'flat' | 'dots' | 'grid' | 'stripes' | 'cross' | 'border' | 'blob' | 'wave';
@@ -495,6 +495,10 @@ export const UI = {
   echoZoneRimAlpha: 0.75,
   /** A soft added glow around the spot. */
   echoZoneGlowAlpha: 0.22,
+  /** The sparkles over a spot: their opacity, how often the two frames swap (ms), and the upward drift (px/s). */
+  echoShimmerAlpha: 0.7,
+  echoShimmerFrameMs: 320,
+  echoShimmerDrift: 6,
   letterbox: '#000000',
   hintFill: 0x2a1e30,
   hintBorder: 0xf2b8d0,
@@ -514,6 +518,11 @@ export const UI = {
 } as const;
 
 export const ECHO_DITHER_TEXTURE = 'echo-dither';
+
+/** The Echo spots' shimmer frames (ECHO_SHIMMER), one texture each. */
+export function textureKeyForShimmer(frame: number): string {
+  return `echo-shimmer-${frame}`;
+}
 
 /** One texture per character look; its frames are `<facing>-<0..2>` (standing, step A, step B). */
 export function textureKeyForCharacter(look: string): string {
