@@ -47,14 +47,18 @@ describe('Act I: Zetwal, start to finish', () => {
   });
 
   it('visits every Zetwal map and swaps eras', () => {
-    // Chapter 1's maps and the temple archive (the Overdue Shelf, required before sailing).
-    expect(new Set(maps)).toEqual(new Set([...ACT1.maps, 'zetwal-archive']));
+    // Chapter 1's maps and the temple archive (the Overdue Shelf, required before sailing). Not the Iron Market:
+    // since Batch D (Oct 19) the engraver brings the seal to the Hall, and the Market is the city's shop street,
+    // off the story's way.
+    const story = ACT1.maps.filter((m) => m !== 'zetwal-market');
+    expect(new Set(maps)).toEqual(new Set([...story, 'zetwal-archive']));
     expect(eras.filter((e) => e === 'echo').length).toBeGreaterThanOrEqual(2);
     expect(sim.log).toContain('Something old stirs here, but it will not open to you yet.');
   });
 
   it('hears from the family', () => {
-    for (const name of ['Gianna', 'Elodie', 'Anissa', 'Anissa (at the door)', 'Anicette', 'Patricio', 'Aide', 'Yari']) {
+    // The engraver and the Crown's consul play their scenes in the Hall (Batch D, Oct 19).
+    for (const name of ['Gianna', 'Elodie', 'Anissa', 'Anissa (at the door)', 'Anicette', 'Patricio', 'Aide', 'Yari', 'Engraver', "The Crown's consul"]) {
       expect(speakers).toContain(name);
     }
   });
