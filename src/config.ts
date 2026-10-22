@@ -53,8 +53,8 @@ export const BAG_LIMIT = 24;
 
 /**
  * Levelling (engine/rpg.ts). XP to reach level n is round(XP_BASE * (n - 1) ^ XP_EXPONENT): level 2 at
- * 50, 3 at 152, 4 at 290, 5 at 459, 10 at 1683, 30 at about 11,000. Chapter 1 gives about 380 XP
- * (level 3 to 4). Gear worn below its level gives GEAR_UNDERLEVEL_SHARE of its bonus. A foe's level
+ * 50, 3 at 152, 4 at 290, 5 at 459, 10 at 1683, 30 at about 11,000. Chapter 1 gives about 425 XP
+ * (level 4). Gear worn below its level gives GEAR_UNDERLEVEL_SHARE of its bonus. A foe's level
  * against yours: TRIVIAL or more below is grey, HARD or more above is orange, DEADLY or more is red.
  */
 export const LEVELS = {
@@ -65,7 +65,12 @@ export const LEVELS = {
   bands: { trivial: 3, hard: 2, deadly: 5 },
 } as const;
 /** Shared XP: each main-quest step done, and each lore book read. */
-export const XP_PER_OBJECTIVE = 25;
+/**
+ * Shared XP: each main-quest step done, by chapter (index 0 is Chapter 1), and each lore book read. The levels pass
+ * (Claude's call, Oct 22; COMBAT.md 6): a step pays 15 in Chapter 1 (the boar still meets a level-3 Gianna), then
+ * 15 + 5 x chapter; a chapter past the table pays its last entry. The demo only plays Chapter 1.
+ */
+export const XP_PER_OBJECTIVE_BY_CHAPTER: readonly number[] = [15, 25, 30, 35, 40];
 export const XP_PER_BOOK = 10;
 
 /** The minimap (src/ui/SideMap.ts): how many tiles it shows across and down (CSS sizes it per layout). */

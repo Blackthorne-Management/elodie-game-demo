@@ -32,7 +32,7 @@ export const SIDE_QUESTS: readonly SideQuestDef[] = [
       { text: 'Bring all three back to the senior archivist.', done: f('side.overdue.done'), goals: [{ map: 'zetwal-archive', at: { x: 14, y: 4 } }] },
     ],
     done: f('side.overdue.done'),
-    reward: { gold: 60, xp: 50, pillar: INFLUENCE_ZETWAL },
+    reward: { gold: 60, xp: 30, pillar: INFLUENCE_ZETWAL },
   },
   {
     id: 'soup',
@@ -54,7 +54,7 @@ export const SIDE_QUESTS: readonly SideQuestDef[] = [
       { text: 'Tell the soup vendor.', done: f('side.soup.done'), goals: [{ map: 'zetwal-town', at: { x: 11, y: 12 } }] },
     ],
     done: f('side.soup.done'),
-    reward: { gold: 30, xp: 40, items: [{ id: 'soup_pot', n: 3 }], pillar: INFLUENCE_ZETWAL },
+    reward: { gold: 30, xp: 25, items: [{ id: 'soup_pot', n: 3 }], pillar: INFLUENCE_ZETWAL },
   },
   {
     id: 'cane_name',
@@ -94,7 +94,7 @@ export const SIDE_QUESTS: readonly SideQuestDef[] = [
       },
     ],
     done: f('side.cane_name.done'),
-    reward: { xp: 50, items: [{ id: 'sun_charm', n: 1 }], pillar: INFLUENCE_ZETWAL },
+    reward: { xp: 30, items: [{ id: 'sun_charm', n: 1 }], pillar: INFLUENCE_ZETWAL },
   },
   // Taking part in the plaza's debate on faith (owner decision, Oct 18): a quest that must be done before Yari
   // sails. Listening, then arguing all three rounds (won or lost), or mediating, finishes it (data/debates.ts).
@@ -119,6 +119,6 @@ export const SIDE_QUESTS: readonly SideQuestDef[] = [
       },
     ],
     done: { any: [f('debate.zetwal_corner.joined'), f('debate.zetwal_corner.mediated')] },
-    reward: { xp: 30 },
+    reward: { xp: 20 },
   },
 ];
