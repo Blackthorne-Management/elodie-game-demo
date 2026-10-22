@@ -51,6 +51,8 @@ export const ACT1: QuestDef = {
       detail: 'Stand on the shimmering tiles by the map table and press Echo. Then talk to the people there.',
       done: { flag: 'story.warroom_echo' },
       goals: [{ map: 'zetwal-house', at: { x: 14, y: 6 } }],
+      // In the memory: the aide by the shelves has the night orders (review 1, finding 2).
+      echoGoals: [{ map: 'zetwal-house', at: { x: 12, y: 4 } }],
       hints: [
         'The air by the map table is shimmering, Gigi. Do you see it?',
         'Stand on the shimmering tiles and press Echo. I will hold the door.',
@@ -62,7 +64,13 @@ export const ACT1: QuestDef = {
       title: 'Leave word for later',
       detail: 'Grandfather keeps copies of his papers under the loose board by the window seat. Leave the night orders there.',
       done: { flag: 'anchor.night_orders' },
-      goals: [{ map: 'zetwal-house', at: { x: 17, y: 2 } }],
+      // The copy is only in the memory: in the present, back to the shimmer; in it, the aide for the copy (it
+      // is gone after a return), then the board by the window.
+      goals: [{ map: 'zetwal-house', at: { x: 14, y: 6 } }],
+      echoGoals: [
+        { if: { notFlag: 'echo.orders_copy' }, map: 'zetwal-house', at: { x: 12, y: 4 } },
+        { map: 'zetwal-house', at: { x: 17, y: 2 } },
+      ],
       hints: [
         "Grandfather hid things for later, didn't he? Grandmother always says so.",
         'The aide said where the copy goes: the loose board by the window.',
@@ -74,10 +82,10 @@ export const ACT1: QuestDef = {
       title: 'Fifty years under the floor',
       detail: 'Return to the present on the shimmering tiles, then look under the window seat.',
       done: { flag: 'clue.night_orders' },
-      goals: [
-        { if: { notFlag: 'story.warroom_returned' }, map: 'zetwal-house', at: { x: 14, y: 6 } },
-        { map: 'zetwal-house', at: { x: 17, y: 2 } },
-      ],
+      // In the memory, the shimmer back out; in the present, the board (review 1, finding 2: an early return,
+      // story.warroom_returned, is not the orders in hand).
+      goals: [{ map: 'zetwal-house', at: { x: 17, y: 2 } }],
+      echoGoals: [{ map: 'zetwal-house', at: { x: 14, y: 6 } }],
       hints: [
         'Come back, Gigi. I want to see if it is still there.',
         'Press Echo on the shimmering tiles to come back, then look under the window seat.',
@@ -89,11 +97,16 @@ export const ACT1: QuestDef = {
       title: 'Cross to the Temple island',
       detail: 'The rope bridge has fallen. The night orders: turn the winch to lower the Chain Bridge, then drive the iron pin through the pawl.',
       done: { flag: 'story.bridge_crossed' },
+      // In the present: the bridgehead shimmer, then (pinned) across. In the memory: the winch, the pawl, then the
+      // shimmer back out (review 1, finding 2).
       goals: [
         { if: { flag: 'anchor.chain_bridge' }, map: 'zetwal-town', at: { x: 31, y: 9 } },
-        { if: { flag: 'story.winch_lowered' }, map: 'zetwal-town', at: { x: 29, y: 8 } },
-        { if: { flag: 'story.bridge_echo_seen' }, map: 'zetwal-town', at: { x: 28, y: 8 } },
         { map: 'zetwal-town', at: { x: 28, y: 10 } },
+      ],
+      echoGoals: [
+        { if: { flag: 'anchor.chain_bridge' }, map: 'zetwal-town', at: { x: 28, y: 10 } },
+        { if: { flag: 'echo.chain_bridge_down' }, map: 'zetwal-town', at: { x: 29, y: 8 } },
+        { map: 'zetwal-town', at: { x: 28, y: 8 } },
       ],
       hints: [
         'Gigi, what if the old bridge could just... go back?',
@@ -185,6 +198,11 @@ export const ACT1: QuestDef = {
       goals: [
         { if: { all: [{ flag: 'side.cane_name.stones' }, { notFlag: 'clue.cane_name' }] }, map: 'zetwal-road', at: { x: 3, y: 14 } },
         { map: 'zetwal-road', at: { x: 9, y: 12 } },
+      ],
+      // In the Cane Road's memory: the cane worker by the roses, then the shimmer back out.
+      echoGoals: [
+        { if: { notFlag: 'clue.cane_name' }, map: 'zetwal-road', at: { x: 2, y: 16 } },
+        { map: 'zetwal-road', at: { x: 3, y: 14 } },
       ],
       hints: [
         "Yari won't leave the cane cutters with that boar, Gigi. Neither will I.",

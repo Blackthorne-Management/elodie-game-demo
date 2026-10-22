@@ -368,9 +368,12 @@ async function hintsAndJournal(browser, errors) {
   check(s.mapId === 'zetwal-town' && s.mode === 'dialogue', 'a new game opens in Zetwal with the festival scene');
   await finishDialogue(page);
   const first = ACT1.objectives[0];
-  await page.waitForFunction((h) => window.__quest.snapshot().hint === h, first.hints[0], { timeout: 5000 });
+  // The hint clock counts play time from Phaser's frame delta, which a throttled headless browser under-counts (review 1,
+  // Oct 21, finding 9: a 1.2 s hint arrived after about 5 s): plenty of margin over the 1.2 s asked for.
+  const HINT_WAIT_MS = 15000;
+  await page.waitForFunction((h) => window.__quest.snapshot().hint === h, first.hints[0], { timeout: HINT_WAIT_MS });
   check(true, `after being stuck, Anissa offers a hint ("${first.hints[0]}")`);
-  await page.waitForFunction((h) => window.__quest.snapshot().hint === h, first.hints[1], { timeout: 5000 });
+  await page.waitForFunction((h) => window.__quest.snapshot().hint === h, first.hints[1], { timeout: HINT_WAIT_MS });
   check(true, 'her hints escalate');
   await menuSelect(page, "Anissa's hints");
   await page.waitForFunction(() => window.__quest.snapshot().menu?.items.some((t) => t === "Anissa's hints: Off"), null, { timeout: 2000 });
