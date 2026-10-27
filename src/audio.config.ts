@@ -44,6 +44,7 @@ export const MUSIC_BY_MAP: Readonly<Record<string, MusicId>> = {
   'zetwal-archive': 'temple',
   'zetwal-hall': 'hall',
   'zetwal-road': 'cane_road',
+  'zetwal-bakery': 'city',
 };
 
 /** Inside any memory. */

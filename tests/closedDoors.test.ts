@@ -65,7 +65,7 @@ describe('open paths between outdoor areas (owner request, Oct 16)', () => {
   it('a way from one outdoor area to another is open ground; only buildings have doors', () => {
     const sources = SOURCES.map((make) => make());
     const interiors = new Set(sources.filter((s) => s.interior).map((s) => s.id));
-    expect([...interiors].sort()).toEqual(['zetwal-archive', 'zetwal-hall', 'zetwal-house']);
+    expect([...interiors].sort()).toEqual(['zetwal-archive', 'zetwal-bakery', 'zetwal-hall', 'zetwal-house']);
     const DOOR_ART = ['D', '«', '»', '⌈', '⌊'];
     let passages = 0;
     let doors = 0;
@@ -81,7 +81,8 @@ describe('open paths between outdoor areas (owner request, Oct 16)', () => {
       }
     }
     expect(passages).toBeGreaterThan(10);
-    expect(doors).toBe(6);
+    // Z-5 (Oct 27) adds two: the harbor bakery's back door from the plaza, and the way back.
+    expect(doors).toBe(8);
   });
 });
 

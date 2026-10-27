@@ -136,6 +136,11 @@ export const TILESET = {
     { gid: 99, name: 'name_stone_sun', base: 0xa8a8b0, accent: 0xf2d04b, pattern: 'dots' },
     { gid: 100, name: 'solange_plinth', base: 0xd8d0c0, accent: 0x6e6a78, pattern: 'border' },
     { gid: 101, name: 'stone_chisel', base: 0xc8c8d0, accent: 0x6b4426, pattern: 'stripes' },
+    // Z-5 Bread With No Debt (Chapter 1, Oct 27; data/bakery.ts): the flour sacks with a grey thumbprint on each seam,
+    // the grain store's sacks fifty years ago, and the harbor bakery's bread oven.
+    { gid: 102, name: 'grain_sacks', base: 0xe8dcc0, accent: 0x6e6a78, pattern: 'dots' },
+    { gid: 103, name: 'grain_sacks_old', base: 0xc8a46b, accent: 0x9c7446, pattern: 'blob' },
+    { gid: 104, name: 'bakery_oven', base: 0x8a4a2a, accent: 0xe0782a, pattern: 'border' },
   ] satisfies PlaceholderTile[],
 } as const;
 
@@ -319,6 +324,9 @@ export const NPC_SPRITES: Record<string, PlaceholderCharacter> = {
   // Zetwal, the Echo (fifty years ago).
   echo_soldier: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0x6a5230, trim: C.R!, legs: C.b!, headgear: 'cap', headgearColor: 0x5a4428 },
   echo_cook: { skin: C.S!, hair: HAIR_DARK, hairStyle: 'short', outfit: 0x9c7a50, trim: C.w!, legs: C.b!, accessories: ['apron'] },
+  // Z-5 (Chapter 1, Oct 27): the harbor baker, floured to the elbow; the Revolution's quartermaster in the grain store.
+  baker: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'bun', outfit: 0xe8dcc0, trim: C.U!, legs: C.B!, headgear: 'wrap', headgearColor: C.U!, accessories: ['apron'] },
+  echo_quartermaster: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0x6a5230, trim: C.y!, legs: C.b!, headgear: 'cap', headgearColor: 0x5a4428, accessories: ['satchel'] },
   echo_aide: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'short', outfit: 0x4a3a2a, trim: C.y!, legs: C.b!, headgear: 'cap', headgearColor: 0x4a3a2a, accessories: ['satchel'] },
   echo_messenger: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'braid', outfit: 0x8a6a3a, trim: C.N!, legs: C.b! },
   echo_builder: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0x8a7a68, trim: C.B!, legs: C.b!, headgear: 'brimmed', headgearColor: C.N! },

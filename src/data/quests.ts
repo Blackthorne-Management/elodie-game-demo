@@ -292,6 +292,14 @@ export const JOURNAL_NOTES: readonly JournalNote[] = [
     title: 'The Sun Locket',
     text: 'Grandfather made it the year of the Accord. Where the air shimmers, press Echo to step into what the place remembers. Only anchors carry a change back.',
   },
+  // Z-5 Bread With No Debt (Chapter 1, Oct 27): the first door the print is on. Unnumbered (Claude's call): the notes
+  // after it in the full game count from Yucayeque's oil ("again", "a third time").
+  {
+    id: 'flour_thumbprint',
+    when: 'side.no_debt.thumbprint',
+    title: 'A grey thumbprint in the flour',
+    text: 'The harbor bakery gives bread at its back door and keeps no debt book. Its flour comes from nobody the baker will name, and every sack has a small grey thumbprint, in ash, on the seam.',
+  },
   {
     id: 'night_orders',
     when: 'clue.night_orders',

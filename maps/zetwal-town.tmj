@@ -11,7 +11,7 @@
   "version": "1.8",
   "tiledversion": "1.8.2",
   "nextlayerid": 16,
-  "nextobjectid": 59,
+  "nextobjectid": 60,
   "layers": [
     {
       "id": 1,
@@ -45,7 +45,7 @@
 1,1,6,6,6,6,6,6,3,1,1,1,7,7,7,7,7,1,1,1,3,11,11,11,11,11,11,1,1,1,1,1,1,1,1,1,1,1,1,1,
 1,1,6,6,93,6,6,6,3,1,1,1,7,7,7,7,7,1,1,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
 1,1,1,1,1,1,1,1,3,1,1,1,6,6,6,6,6,1,1,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,6,
-1,1,1,1,1,1,1,1,3,1,1,1,6,6,93,6,6,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,6,
+1,1,1,1,1,1,1,1,3,1,1,1,6,6,94,95,6,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,6,
 1,1,1,1,1,1,1,1,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,6,
 12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,1,1,1,1,1,1,1,1,1,6,
 4,4,4,4,4,4,41,41,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
@@ -250,7 +250,7 @@
 16,0,16,16,16,16,16,16,0,0,0,0,16,16,16,16,16,0,0,0,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,0,0,0,0,0,
 16,0,16,16,16,16,16,16,0,0,0,0,16,16,16,16,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 16,0,0,0,0,0,0,0,0,0,0,0,16,16,16,16,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,16,16,
-16,0,0,0,0,0,0,0,0,0,16,0,16,16,16,16,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
+16,0,0,0,0,0,0,0,0,0,16,0,16,16,0,0,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,16,0,0,0,0,0,0,0,16,0,0,0,0,0,16,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
 16,16,16,16,16,16,0,0,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
@@ -1113,6 +1113,44 @@
               "value": "temple_bridge"
             }
           ]
+        },
+        {
+          "id": 30,
+          "name": "town_bakery",
+          "type": "door",
+          "x": 224,
+          "y": 336,
+          "width": 32,
+          "height": 16,
+          "rotation": 0,
+          "visible": true,
+          "properties": [
+            {
+              "name": "closed",
+              "type": "string",
+              "value": "plaza_door_closed"
+            },
+            {
+              "name": "exit",
+              "type": "string",
+              "value": "down"
+            },
+            {
+              "name": "if",
+              "type": "string",
+              "value": "story.warroom_echo"
+            },
+            {
+              "name": "map",
+              "type": "string",
+              "value": "zetwal-bakery"
+            },
+            {
+              "name": "target",
+              "type": "string",
+              "value": "bakery_out"
+            }
+          ]
         }
       ]
     },
@@ -1127,7 +1165,7 @@
       "draworder": "topdown",
       "objects": [
         {
-          "id": 30,
+          "id": 31,
           "name": "intro",
           "type": "trigger",
           "x": 128,
@@ -1160,7 +1198,7 @@
           ]
         },
         {
-          "id": 31,
+          "id": 32,
           "name": "bridge_cross",
           "type": "trigger",
           "x": 496,
@@ -1193,7 +1231,7 @@
           ]
         },
         {
-          "id": 32,
+          "id": 33,
           "name": "bridge_look",
           "type": "trigger",
           "x": 416,
@@ -1238,7 +1276,7 @@
       "draworder": "topdown",
       "objects": [
         {
-          "id": 33,
+          "id": 34,
           "name": "start",
           "type": "spawn",
           "x": 128,
@@ -1261,7 +1299,7 @@
           ]
         },
         {
-          "id": 34,
+          "id": 35,
           "name": "bridgehead",
           "type": "spawn",
           "x": 400,
@@ -1296,7 +1334,7 @@
       "draworder": "topdown",
       "objects": [
         {
-          "id": 35,
+          "id": 36,
           "name": "plaza_stone",
           "type": "echo_zone",
           "x": 176,
@@ -1319,7 +1357,7 @@
           ]
         },
         {
-          "id": 36,
+          "id": 37,
           "name": "bridgehead",
           "type": "echo_zone",
           "x": 432,
@@ -1359,7 +1397,7 @@
       "draworder": "topdown",
       "objects": [
         {
-          "id": 37,
+          "id": 38,
           "name": "chain_bridge_pin",
           "type": "anchor",
           "x": 464,
@@ -1394,7 +1432,7 @@
       "draworder": "topdown",
       "objects": [
         {
-          "id": 38,
+          "id": 39,
           "name": "plaza_lantern_nw",
           "type": "puzzle_object",
           "x": 224,
@@ -1422,7 +1460,7 @@
           ]
         },
         {
-          "id": 39,
+          "id": 40,
           "name": "plaza_lantern_ne",
           "type": "puzzle_object",
           "x": 336,
@@ -1450,7 +1488,7 @@
           ]
         },
         {
-          "id": 40,
+          "id": 41,
           "name": "plaza_lantern_sw",
           "type": "puzzle_object",
           "x": 160,
@@ -1478,7 +1516,7 @@
           ]
         },
         {
-          "id": 41,
+          "id": 42,
           "name": "plaza_lantern_se",
           "type": "puzzle_object",
           "x": 400,
@@ -1506,7 +1544,7 @@
           ]
         },
         {
-          "id": 42,
+          "id": 43,
           "name": "rope_bridge",
           "type": "puzzle_object",
           "x": 480,
@@ -1529,7 +1567,7 @@
           ]
         },
         {
-          "id": 43,
+          "id": 44,
           "name": "plaque",
           "type": "puzzle_object",
           "x": 432,
@@ -1552,7 +1590,7 @@
           ]
         },
         {
-          "id": 44,
+          "id": 45,
           "name": "winch_rusted",
           "type": "puzzle_object",
           "x": 448,
@@ -1575,7 +1613,7 @@
           ]
         },
         {
-          "id": 45,
+          "id": 46,
           "name": "pawl_rusted",
           "type": "puzzle_object",
           "x": 464,
@@ -1598,7 +1636,7 @@
           ]
         },
         {
-          "id": 46,
+          "id": 47,
           "name": "pawl_pinned",
           "type": "puzzle_object",
           "x": 464,
@@ -1626,7 +1664,7 @@
           ]
         },
         {
-          "id": 47,
+          "id": 48,
           "name": "winch",
           "type": "puzzle_object",
           "x": 448,
@@ -1649,7 +1687,7 @@
           ]
         },
         {
-          "id": 48,
+          "id": 49,
           "name": "pawl",
           "type": "puzzle_object",
           "x": 464,
@@ -1672,7 +1710,7 @@
           ]
         },
         {
-          "id": 49,
+          "id": 50,
           "name": "chain_bridge_echo",
           "type": "puzzle_object",
           "x": 480,
@@ -1705,7 +1743,7 @@
           ]
         },
         {
-          "id": 50,
+          "id": 51,
           "name": "chain_bridge",
           "type": "puzzle_object",
           "x": 480,
@@ -1738,7 +1776,7 @@
           ]
         },
         {
-          "id": 51,
+          "id": 52,
           "name": "chain_bridge_raised",
           "type": "puzzle_object",
           "x": 544,
@@ -1766,7 +1804,7 @@
           ]
         },
         {
-          "id": 52,
+          "id": 53,
           "name": "chain_bridge_raised_echo",
           "type": "puzzle_object",
           "x": 544,
@@ -1794,7 +1832,7 @@
           ]
         },
         {
-          "id": 53,
+          "id": 54,
           "name": "plaza_fountain",
           "type": "puzzle_object",
           "x": 272,
@@ -1817,7 +1855,7 @@
           ]
         },
         {
-          "id": 54,
+          "id": 55,
           "name": "monument",
           "type": "puzzle_object",
           "x": 192,
@@ -1840,7 +1878,7 @@
           ]
         },
         {
-          "id": 55,
+          "id": 56,
           "name": "stone_pile",
           "type": "puzzle_object",
           "x": 192,
@@ -1863,7 +1901,7 @@
           ]
         },
         {
-          "id": 56,
+          "id": 57,
           "name": "signing_stage",
           "type": "puzzle_object",
           "x": 272,
@@ -1898,7 +1936,7 @@
       "draworder": "topdown",
       "objects": [
         {
-          "id": 57,
+          "id": 58,
           "name": "plaza_festival",
           "type": "crowd_zone",
           "x": 176,
@@ -1926,7 +1964,7 @@
           ]
         },
         {
-          "id": 58,
+          "id": 59,
           "name": "plaza_evening",
           "type": "crowd_zone",
           "x": 176,
@@ -1965,7 +2003,7 @@
       "imageheight": 208,
       "tilewidth": 16,
       "tileheight": 16,
-      "tilecount": 101,
+      "tilecount": 104,
       "columns": 8,
       "margin": 0,
       "spacing": 0

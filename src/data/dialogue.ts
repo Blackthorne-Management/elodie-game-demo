@@ -4,6 +4,7 @@
 import type { DialogueScript } from '../engine/dialogue.ts';
 import { SHELF_DIALOGUE } from './books.ts';
 import { ZETWAL_DIALOGUE } from './dialogue/zetwal.ts';
+import { ZETWAL_QUEST_DIALOGUE } from './dialogue/zetwalQuests.ts';
 
 const TEST_VILLAGE: Readonly<Record<string, DialogueScript>> = {
   villager_talk: {
@@ -142,6 +143,7 @@ const TEST_VILLAGE: Readonly<Record<string, DialogueScript>> = {
 export const DIALOGUE: Readonly<Record<string, DialogueScript>> = {
   ...TEST_VILLAGE,
   ...Object.fromEntries(ZETWAL_DIALOGUE.map((d) => [d.id, d])),
+  ...Object.fromEntries(ZETWAL_QUEST_DIALOGUE.map((d) => [d.id, d])),
   ...SHELF_DIALOGUE,
 };
 

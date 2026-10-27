@@ -54,6 +54,11 @@ export const OBJECTS: Readonly<Record<string, ObjectInfo>> = {
   // in the memory the plinth with the stonecutter's chisel and the blank seventh stone.
   ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((n) => [`name_stone_${n}`, { name: 'A name stone' }])),
   solange_plinth: { name: "Solange's plinth" },
+  // Z-5 Bread With No Debt (Chapter 1): the harbor bakery's oven and flour, and the grain store in its memory.
+  bakery_oven: { name: 'The bread oven' },
+  flour_sacks: { name: 'Flour sacks' },
+  grain_store: { name: 'The grain store' },
+  grain_store_west: { name: 'The grain store' },
   seventh_stone_blank: { name: 'The seventh stone' },
   seventh_stone_sun: { name: 'The seventh stone', inspect: 'The seventh name stone. No name on it: only a sun, worn soft by fifty years of rain.' },
   plinth_echo: { name: 'A new plinth' },
@@ -118,6 +123,8 @@ export const DOORS: Readonly<Record<string, string>> = {
   'zetwal-harbor/harbor_plaza': 'Back to the plaza',
   'zetwal-heights/heights_square': 'East lane: Accord Square',
   'zetwal-town/town_gate': 'East gate: the Cane Road',
+  'zetwal-town/town_bakery': 'The bakery\'s back door',
+  'zetwal-bakery/bakery_out': 'Out to the harbor lane',
   'zetwal-road/road_gate': 'Back through the east gate',
   'test-village/house_front': 'House',
   'test-village/house_inside': 'Outside',

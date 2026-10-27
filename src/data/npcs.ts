@@ -94,6 +94,11 @@ export const NPCS: Readonly<Record<string, NpcDef>> = {
   fisher_island: n('fisher_island', 'ferryman', 'Fisher'),
   echo_soldier: n('echo_soldier', 'echo_soldier', 'Soldier'),
   echo_cook: n('echo_cook', 'echo_cook', 'Camp cook'),
+  // Z-5 Bread With No Debt (Chapter 1, Oct 27): the harbor baker (her shop once the quest is done: bread at cost), and
+  // the Revolution's quartermaster in the grain store's memory.
+  baker: n('baker', 'baker', 'Baker'),
+  baker_shop: { ...n('baker_shop', 'baker', 'Baker'), shop: 'zetwal_bakery' },
+  echo_quartermaster: n('echo_quartermaster', 'echo_quartermaster', 'Quartermaster'),
   echo_scout: n('echo_scout', 'echo_soldier', 'Scout'),
   echo_sentry: n('echo_sentry', 'echo_soldier', 'Sentry'),
   echo_drummer: n('echo_drummer', 'echo_drummer', 'Drummer'),

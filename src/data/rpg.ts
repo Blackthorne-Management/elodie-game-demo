@@ -97,6 +97,9 @@ const ITEM_LIST: ItemDef[] = [
   { id: 'lanbi_fritters', name: 'Conch fritters', kind: 'consumable', price: 30, restores: 15, text: 'Marinad lanbi: conch fritters, crisp and peppery. Restores 15 SP.' },
   { id: 'spiny_lobster', name: 'Spiny lobster', kind: 'consumable', price: 60, heals: 40, restores: 10, text: 'Grilled this minute, bad attitude and all. Restores 40 HP and 10 SP.' },
   { id: 'mango', name: 'Ripe mango', kind: 'consumable', price: 10, heals: 15, text: 'From the plaza stalls. Restores 15 HP.' },
+  // Z-5 Bread With No Debt (Oct 27): the harbor baker's bread, sold at what the flour cost (Claude's call: "at cost" is
+  // the price itself, a third of a loaf's worth elsewhere; the shop has no other stock).
+  { id: 'harbor_bread', name: 'Harbor bread', kind: 'consumable', price: 6, heals: 30, text: 'A round loaf from the harbor bakery\'s back door, at what the flour cost. "Pran, pran. Pa gen dèt." Restores 30 HP.' },
 
   // Gear (owner decision, Oct 15): staffs for mages, bows for archers, blades for warriors; anyone may
   // wear any armour, but robes suit mages (magic, SP), leather archers (speed, attack) and heavy armour
@@ -171,6 +174,8 @@ export const SHOPS: Readonly<Record<string, ShopDef>> = {
   zetwal_forge: { id: 'zetwal_forge', name: 'Harbor forge', city: 'zetwal', stock: ['sunwood_staff', 'ironwood_bow', 'steel_saber', 'padded_vest', 'iron_cuirass', 'temple_robe', 'lantern_staff', 'goldband_bow'] },
   zetwal_charms: { id: 'zetwal_charms', name: 'Charm stand', city: 'zetwal', stock: ['sun_charm', 'sea_glass_charm'] },
   zetwal_market: { id: 'zetwal_market', name: 'Market stand', city: 'zetwal', stock: ['soup_pot', 'akasan', 'mango'] },
+  // Z-5: the harbor bakery's back door, after the quest (CAPITALS.md: "Pran, pran. Pa gen dèt."): bread at cost.
+  zetwal_bakery: { id: 'zetwal_bakery', name: 'Harbor bakery', city: 'zetwal', stock: ['harbor_bread'] },
   // The Iron Market (Oct 15).
   zetwal_produce: { id: 'zetwal_produce', name: 'Produce row', city: 'zetwal', stock: ['mango', 'kasav', 'kann'] },
   zetwal_spices: { id: 'zetwal_spices', name: 'Spice row', city: 'zetwal', stock: ['pikliz', 'akasan'] },

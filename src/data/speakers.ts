@@ -42,6 +42,9 @@ export const SPEAKERS: Readonly<Record<string, Speaker>> = {
   // Zetwal, the Echo (fifty years ago).
   echo_soldier: s('echo_soldier', 'Soldier'),
   echo_cook: s('echo_cook', 'Camp cook'),
+  baker: s('baker', 'Baker'),
+  quartermaster: s('quartermaster', 'Quartermaster', 'echo_quartermaster'),
+  grain_woman: s('grain_woman', 'A woman with a basket', 'villager'),
   echo_scout: s('echo_scout', 'Scout'),
   echo_sentry: s('echo_sentry', 'Sentry'),
   echo_drummer: s('echo_drummer', 'Drummer'),
