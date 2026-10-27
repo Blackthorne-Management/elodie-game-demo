@@ -104,6 +104,17 @@ export const SFX_IDS = [
   // The Game Over screen: the low note as the party falls, and the goddess's soft bell.
   'fall',
   'bell',
+  // Z-4 The Seventh Stone (Chapter 1): each name stone's own note when touched, the dull knock of a wrong one, and the
+  // seven together when the seventh answers. A dialogue line plays one by its id as its `fx`.
+  'stone_1',
+  'stone_2',
+  'stone_3',
+  'stone_4',
+  'stone_5',
+  'stone_6',
+  'stone_7',
+  'stone_hush',
+  'stones_chord',
 ] as const;
 
 export type SfxId = (typeof SFX_IDS)[number];

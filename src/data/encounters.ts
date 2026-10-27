@@ -11,6 +11,8 @@ import type { EncounterTable } from '../engine/content.ts';
 export const LATER_STORY_FLAGS: readonly string[] = [
   /** The party returns to Zetwal later in the story: the Cane Road's ambushes begin. */
   'story.zetwal_return',
+  /** Chapter 10: the fleet sails for Xaraguá (Z-4 The Seventh Stone closes then, unfinished). */
+  'story.fleet_sailed',
 ];
 
 export const ENCOUNTERS: Readonly<Record<string, EncounterTable>> = {
