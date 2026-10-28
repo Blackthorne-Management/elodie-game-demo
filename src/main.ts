@@ -35,8 +35,19 @@ import { GameOverScene } from './scenes/GameOverScene.ts';
 import { IntroScene } from './scenes/IntroScene.ts';
 import { isStandalone, mountFullscreenButton } from './ui/fullscreen.ts';
 import { mountInstallScreen } from './ui/installScreen.ts';
+import { openNoticeDialog } from './ui/saveCodeDialog.ts';
+import { applyReduceMotionClass } from './ui/reduceMotion.ts';
 import { fitToScreen, preventBrowserZoom, visibleViewport } from './ui/screen.ts';
 import './style.css';
+
+/** Whether the intro was seen on this device (storage that throws reads as not seen). */
+function introSeen(r: Runtime): boolean {
+  try {
+    return !!r.storage?.getItem(INTRO_SEEN_KEY);
+  } catch {
+    return false;
+  }
+}
 
 function fail(message: string): never {
   const box = document.createElement('pre');
@@ -68,8 +79,13 @@ if (gate !== 'play') {
 }
 
 const rawMaps = loadRawMaps();
-const problems = [...validateMaps(rawMaps, validationContext()), ...checkDialogue(CONTENT.dialogue, CONTENT.speakers, PORTRAIT_MOODS)];
-if (problems.length > 0) fail(`Content problems:\n${problems.join('\n')}`);
+// The content check (every map and conversation) runs on the dev server, or with `?validate=1`. The tests run the
+// same check on every change (tests/maps.test.ts, tests/content.test.ts), and on an older phone it held the
+// boot for a second or more (Claude's call, Oct 28).
+if (import.meta.env.DEV || new URLSearchParams(location.search).get('validate') === '1') {
+  const problems = [...validateMaps(rawMaps, validationContext()), ...checkDialogue(CONTENT.dialogue, CONTENT.speakers, PORTRAIT_MOODS)];
+  if (problems.length > 0) fail(`Content problems:\n${problems.join('\n')}`);
+}
 
 const maps: Record<string, GameMap> = Object.fromEntries(
   Object.entries(rawMaps).map(([id, raw]) => [id, parseMap(id, raw)]),
@@ -85,6 +101,7 @@ const startMap = maps[start.map] ?? fail(`Start map ${start.map} is missing`);
 const hintFirst = Number(params.get('hintms'));
 
 preventBrowserZoom();
+applyReduceMotionClass();
 
 const sources: InputSource[] = [new KeyboardSource(), new GamepadSource()];
 if (isTouchDevice()) {
@@ -107,8 +124,11 @@ const runtime: Runtime = {
 };
 setRuntime(runtime);
 const loaded = loadStoredGame(runtime);
-if (loaded === 'invalid') console.warn('[quest] the stored save could not be loaded; starting a new game');
-runtime.intro = params.get('intro') === '0' ? null : introOpening(loaded === 'loaded', !!runtime.storage?.getItem(INTRO_SEEN_KEY));
+if (loaded.status === 'invalid') console.warn('[quest] the stored save could not be loaded; starting a new game');
+// An old or damaged save never crashes the game: it loads with defaults, or a new game starts and the player is
+// told, with the old save's code to copy (engine/state.ts loadStoredSave).
+if (loaded.notice) openNoticeDialog(loaded.status === 'invalid' ? 'Your save' : 'Your save was updated', loaded.notice, loaded.kept);
+runtime.intro = params.get('intro') === '0' ? null : introOpening(loaded.status === 'loaded', introSeen(runtime));
 
 const vp = visibleViewport();
 const startZoom = fitZoom(vp.width, vp.height, VIEW_WIDTH, VIEW_HEIGHT, MAX_ZOOM, MIN_INTEGER_ZOOM);
