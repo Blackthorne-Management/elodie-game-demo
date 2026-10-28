@@ -590,6 +590,22 @@ export function textureKeyForPortrait(portrait: string): string {
   return `portrait-${portrait}`;
 }
 
+/**
+ * Expressions (art prompts: ART-PROMPTS.md "File names" and ART-PROMPTS-REAL-PEOPLE.md): a dialogue line's `mood`
+ * shows portraits/<portrait>_<mood>.png when that file exists, else the plain portrait. Keyed by PORTRAITS key.
+ */
+export const PORTRAIT_MOODS: Readonly<Record<string, readonly string[]>> = {
+  elodie: ['guarded', 'worried'],
+  patricio: ['neutral', 'troubled'],
+  patricio_old: ['sad', 'stern'],
+  anicette: ['neutral', 'sly'],
+};
+
+/** The texture of a portrait's expression (its file is portraits/<the portrait's file name>_<mood>.png). */
+export function textureKeyForPortraitMood(portrait: string, mood: string): string {
+  return `portrait-${portrait}~${mood}`;
+}
+
 /** Large object drawings (OBJECT_ART), one texture each. */
 export function textureKeyForObject(kind: string): string {
   return `object-${kind}`;
