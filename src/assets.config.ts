@@ -189,6 +189,67 @@ export const SKIN_TONES = {
 export type SkinTone = keyof typeof SKIN_TONES;
 
 /**
+ * Skin tones by heritage (owner direction, Oct 29; docs/quest/ART-STYLE.md 5): most people of a land share its
+ * heritage's tones, a few in every land are immigrants from elsewhere, and the Crown and the Quiet Crown come from
+ * everywhere. Each colour is the average skin of a placeholder look (scenes/pixels.ts shades it).
+ */
+export const SKIN = {
+  // Zetwal (Haitian): Black, from deep to mid brown.
+  ebony: 0x3e2416,
+  umber: 0x4a2a18,
+  espresso: 0x5a3622,
+  cocoa: 0x6a3e24,
+  mahogany: 0x7a4a2a,
+  // Xaraguá (Taíno): copper browns.
+  copper: 0x8e5432,
+  cinnamon: 0x9a5c34,
+  chestnut: 0xa86a40,
+  sienna: 0xb07850,
+  // Ardencia (Spanish): olive and tan.
+  olive: 0xbc8a62,
+  tan: 0xc48c60,
+  almond: 0xd0a074,
+  // Al-Doria (Arab and North African, Mediterranean): bronze to sand.
+  date: 0x946240,
+  bronze: 0xa87448,
+  amber: 0xb98256,
+  sand: 0xc6926a,
+  // Kuroshi (Japanese).
+  honey: 0xc8946a,
+  fawn: 0xd8a880,
+  ivory: 0xe4b890,
+  // Jwaladesh (Indian).
+  cardamom: 0x7c5034,
+  clove: 0x8a5a3a,
+  nutmeg: 0x9c6842,
+  teak: 0xb07850,
+  // Aldermoor (English).
+  ruddy: 0xd8a08a,
+  peach: 0xe0b08c,
+  rose: 0xecc4a4,
+  pale: 0xf0d2bc,
+  // Skarragol (Norse and the Mongol steppe): fair northerners and steppe riders.
+  fair: 0xf0ccb0,
+  saddle: 0xc8986a,
+  steppe: 0xd4a272,
+} as const;
+
+/** The land a map belongs to: its id up to the first dash (`zetwal-town` is Zetwal's). */
+export type Land = 'zetwal' | 'xaragua' | 'ardencia' | 'aldoria' | 'seat' | 'skarragol' | 'kuroshi' | 'jwaladesh' | 'aldermoor';
+
+/** Each land's heritage tones. Eightgate (the Seat) is the realm's crossroads: everyone, no one tone. */
+export const LAND_SKIN: Readonly<Record<Exclude<Land, 'seat'>, readonly number[]>> = {
+  zetwal: [SKIN.ebony, SKIN.umber, SKIN.espresso, SKIN.cocoa, SKIN.mahogany, SKIN_TONES.deep, SKIN_TONES.brown],
+  xaragua: [SKIN.copper, SKIN.cinnamon, SKIN.chestnut, SKIN.sienna, SKIN_TONES.medium],
+  ardencia: [SKIN.olive, SKIN.tan, SKIN.almond],
+  aldoria: [SKIN.date, SKIN.bronze, SKIN.amber, SKIN.sand],
+  kuroshi: [SKIN.honey, SKIN.fawn, SKIN.ivory],
+  jwaladesh: [SKIN.cardamom, SKIN.clove, SKIN.nutmeg, SKIN.teak],
+  aldermoor: [SKIN.ruddy, SKIN.peach, SKIN.rose, SKIN.pale],
+  skarragol: [SKIN.fair, SKIN.rose, SKIN.peach, SKIN.saddle, SKIN.steppe],
+};
+
+/**
  * A member of the Quiet Crown (guide 7): a charcoal cowl that shows the face, a bone-white veil over the
  * mouth (they "steal voices"), the small silver crown on the chest. Men are drawn taller and broader,
  * women with a braid down the back. One art sheet per sex (quiet_crown_m, quiet_crown_f), any skin tone.
@@ -206,6 +267,9 @@ const QUIET_CROWN: Record<string, PlaceholderCharacter> = Object.fromEntries(
 
 const C = PALETTE;
 /** Black hair, a shade above the outline colour so the outline still reads around it. */
+/** Xaraguá's cotton and the Yaguana teal (worn by visitors at the festival and on the temple path). */
+const COTTON = 0xe8e0c8;
+const TEAL = 0x17a5a5;
 const HAIR_BLACK = 0x2b2433;
 const HAIR_DARK = 0x2a1a14;
 const WHITE_HAIR = C.h!;
@@ -253,7 +317,7 @@ export const NPC_SPRITES: Record<string, PlaceholderCharacter> = {
   // Zetwal, the present: the Temple Archive, the Hall of the Accord and the Cane Road.
   smith: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'bald', outfit: 0x5a4a3e, trim: C.e!, legs: C.K!, beard: HAIR_BLACK, accessories: ['apron'] },
   charm_seller: { skin: C.S!, hair: HAIR_DARK, hairStyle: 'braid', outfit: C.y!, trim: C.R!, robe: true, headgear: 'wrap', headgearColor: C.R!, accessories: ['sash'] },
-  grocer: { skin: C.T!, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.L!, trim: C.w!, legs: C.B!, headgear: 'wrap', headgearColor: C.y!, accessories: ['apron'] },
+  grocer: { skin: SKIN.cocoa, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.L!, trim: C.w!, legs: C.B!, headgear: 'wrap', headgearColor: C.y!, accessories: ['apron'] },
   archivist: { skin: C.s!, hair: WHITE_HAIR, hairStyle: 'bun', outfit: C.U!, trim: C.y!, robe: true, accessories: ['satchel'] },
   clerk: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.w!, trim: C.y!, legs: C.K!, accessories: ['sash'] },
   cane_cutter: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0xa89c86, trim: C.o!, legs: C.B!, headgear: 'brimmed', headgearColor: C.N! },
@@ -262,47 +326,47 @@ export const NPC_SPRITES: Record<string, PlaceholderCharacter> = {
   honor_guard: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.u!, trim: C.y!, legs: C.w!, headgear: 'bicorne', headgearColor: C.u!, accessories: ['epaulettes', 'sash'] },
   gazette_crier: { skin: C.S!, hair: HAIR_DARK, hairStyle: 'short', outfit: C.w!, trim: C.R!, legs: C.B!, headgear: 'cap', headgearColor: C.R!, accessories: ['satchel'] },
   petitioner: { skin: C.s!, hair: C.G!, hairStyle: 'short', outfit: 0xa89c86, trim: C.B!, legs: C.B!, accessories: ['cane'] },
-  protester: { skin: C.T!, hair: HAIR_BLACK, hairStyle: 'braid', outfit: C.R!, trim: C.w!, legs: C.K!, headgear: 'wrap', headgearColor: C.y! },
+  protester: { skin: SKIN.espresso, hair: HAIR_BLACK, hairStyle: 'braid', outfit: C.R!, trim: C.w!, legs: C.K!, headgear: 'wrap', headgearColor: C.y! },
   courier_rider: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.B!, trim: C.y!, legs: C.K!, headgear: 'cap', headgearColor: C.U!, accessories: ['satchel'] },
   nursemaid: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'bun', outfit: C.C!, trim: C.w!, legs: C.w!, headgear: 'wrap', headgearColor: C.w!, accessories: ['apron'] },
   hall_page: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.U!, trim: C.y!, legs: C.K!, build: 'small', accessories: ['satchel'] },
   hall_steward: { skin: C.s!, hair: C.G!, hairStyle: 'short', outfit: C.K!, trim: C.y!, legs: C.K!, build: 'tall', accessories: ['sash'] },
-  throne_usher: { skin: C.T!, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.r!, trim: C.y!, legs: C.K!, accessories: ['staff', 'sash'] },
+  throne_usher: { skin: SKIN.cocoa, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.r!, trim: C.y!, legs: C.K!, accessories: ['staff', 'sash'] },
   council_speaker: { skin: C.s!, hair: WHITE_HAIR, hairStyle: 'short', outfit: C.p!, trim: C.y!, robe: true, beard: WHITE_HAIR, accessories: ['sash'] },
   elder_dove: { skin: C.S!, hair: WHITE_HAIR, hairStyle: 'bun', outfit: C.w!, trim: C.c!, robe: true, accessories: ['cane'] },
   elder_hawk: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.u!, trim: C.R!, legs: C.K!, build: 'tall', beard: HAIR_BLACK, accessories: ['epaulettes'] },
   crown_consul: { skin: C.T!, hair: C.B!, hairStyle: 'short', outfit: 0x2a2a3a, trim: C.I!, legs: C.K!, build: 'tall', headgear: 'bicorne', headgearColor: 0x2a2a3a, accessories: ['sash', 'emblem'] },
   chancellor: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'bun', outfit: C.m!, trim: C.y!, robe: true, build: 'tall', accessories: ['sash'] },
   seal_keeper: { skin: C.S!, hair: C.G!, hairStyle: 'bald', outfit: C.U!, trim: C.y!, robe: true, beard: C.G! },
-  chief_courier: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'braid', outfit: C.L!, trim: C.y!, legs: C.B!, headgear: 'cap', headgearColor: C.L!, accessories: ['satchel'] },
+  chief_courier: { skin: SKIN.ebony, hair: HAIR_DARK, hairStyle: 'braid', outfit: C.L!, trim: C.y!, legs: C.B!, headgear: 'cap', headgearColor: C.L!, accessories: ['satchel'] },
   treasurer: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.l!, trim: C.y!, legs: C.K!, accessories: ['sash'] },
   scribe: { skin: C.S!, hair: HAIR_DARK, hairStyle: 'short', outfit: C.w!, trim: C.u!, legs: C.K!, accessories: ['satchel'] },
   // The Iron Market rebuilt.
   produce_seller: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'short', outfit: C.o!, trim: C.L!, legs: C.B!, headgear: 'wrap', headgearColor: C.L!, accessories: ['apron'] },
   spice_seller: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'braid', outfit: C.R!, trim: C.y!, robe: true, headgear: 'wrap', headgearColor: C.o! },
-  cloth_merchant: { skin: C.T!, hair: HAIR_BLACK, hairStyle: 'long', outfit: C.P!, trim: C.U!, robe: true, accessories: ['sash'] },
+  cloth_merchant: { skin: SKIN.amber, hair: HAIR_BLACK, hairStyle: 'long', outfit: C.P!, trim: C.U!, robe: true, accessories: ['sash'] },
   goat_herder: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0xa89c86, trim: C.B!, legs: C.B!, headgear: 'brimmed', headgearColor: C.N!, accessories: ['staff'] },
   lottery_seller: { skin: C.S!, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.y!, trim: C.L!, legs: C.K!, headgear: 'cap', headgearColor: C.L! },
-  porter: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'bald', outfit: C.w!, trim: C.B!, legs: C.B!, build: 'tall' },
+  porter: { skin: SKIN.ebony, hair: HAIR_BLACK, hairStyle: 'bald', outfit: C.w!, trim: C.B!, legs: C.B!, build: 'tall' },
   pickpocket: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'curly', outfit: 0x8a7a68, trim: C.R!, legs: C.B!, build: 'small' },
-  market_shopper: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'bun', outfit: C.U!, trim: C.y!, robe: true, headgear: 'wrap', headgearColor: C.y!, accessories: ['satchel'] },
+  market_shopper: { skin: SKIN.espresso, hair: HAIR_DARK, hairStyle: 'bun', outfit: C.U!, trim: C.y!, robe: true, headgear: 'wrap', headgearColor: C.y!, accessories: ['satchel'] },
 
   // The Iron Market, the Old Harbor and Solèy Heights (owner decision, Oct 15).
   engraver: { skin: C.s!, hair: C.G!, hairStyle: 'short', outfit: 0x5a4a3e, trim: C.y!, legs: C.K!, beard: C.G!, accessories: ['apron'] },
   ironmonger: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.i!, trim: C.e!, legs: C.K!, accessories: ['apron'] },
-  letter_writer: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'bun', outfit: C.p!, trim: C.w!, robe: true, accessories: ['satchel'] },
+  letter_writer: { skin: SKIN.peach, hair: HAIR_DARK, hairStyle: 'bun', outfit: C.p!, trim: C.w!, robe: true, accessories: ['satchel'] },
   foreign_envoy: { skin: C.T!, hair: HAIR_BLACK, hairStyle: 'long', outfit: C.m!, trim: C.y!, robe: true, build: 'tall', headgear: 'circlet', headgearColor: C.I!, accessories: ['sash'] },
   market_kid: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'puffs', outfit: C.R!, trim: C.w!, legs: C.B!, build: 'small' },
   fishwife: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'short', outfit: C.c!, trim: C.w!, legs: C.B!, headgear: 'wrap', headgearColor: C.U!, accessories: ['apron'] },
   net_mender: { skin: C.S!, hair: WHITE_HAIR, hairStyle: 'cropped', outfit: 0xa89c86, trim: C.c!, legs: C.B!, beard: WHITE_HAIR },
   old_sailor: { skin: C.s!, hair: WHITE_HAIR, hairStyle: 'bald', outfit: C.u!, trim: C.w!, legs: C.K!, beard: WHITE_HAIR, headgear: 'cap', headgearColor: C.u! },
   gardener: { skin: C.s!, hair: C.G!, hairStyle: 'bun', outfit: C.L!, trim: C.y!, legs: C.B!, headgear: 'brimmed', headgearColor: C.N!, accessories: ['apron'] },
-  poet: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.K!, trim: C.R!, legs: C.K!, accessories: ['satchel'] },
+  poet: { skin: SKIN.copper, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.K!, trim: C.R!, legs: C.K!, accessories: ['satchel'] },
   porch_widow: { skin: C.s!, hair: WHITE_HAIR, hairStyle: 'bun', outfit: C.K!, trim: C.w!, robe: true, accessories: ['cane'] },
   lookout_keeper: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.B!, trim: C.o!, legs: C.K!, headgear: 'cap', headgearColor: C.R! },
 
   // Zetwal, the present.
-  gaze_keeper: { skin: C.S!, hair: WHITE_HAIR, hairStyle: 'short', outfit: C.w!, trim: C.y!, robe: true, accessories: ['staff'] },
+  gaze_keeper: { skin: SKIN.mahogany, hair: WHITE_HAIR, hairStyle: 'short', outfit: C.w!, trim: C.y!, robe: true, accessories: ['staff'] },
   soup_vendor: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'cropped', outfit: C.o!, trim: C.y!, legs: C.B!, headgear: 'wrap', headgearColor: C.o!, accessories: ['apron'] },
   town_guard: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.U!, trim: C.I!, legs: C.u!, headgear: 'helmet', headgearColor: C.I! },
   festival_kid: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.y!, trim: C.c!, legs: C.B!, build: 'small' },
@@ -314,12 +378,39 @@ export const NPC_SPRITES: Record<string, PlaceholderCharacter> = {
   // The festival's passers-by (demo review, Oct 17): the crowd on the plaza and the temple path. Pictures only.
   festival_a: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'braid', outfit: C.y!, trim: C.R!, robe: true, headgear: 'wrap', headgearColor: C.R! },
   festival_b: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'short', outfit: C.c!, trim: C.w!, legs: C.B! },
-  festival_c: { skin: C.T!, hair: HAIR_BLACK, hairStyle: 'bun', outfit: C.p!, trim: C.y!, robe: true },
+  festival_c: { skin: SKIN.espresso, hair: HAIR_BLACK, hairStyle: 'bun', outfit: C.p!, trim: C.y!, robe: true },
   festival_d: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.w!, trim: C.o!, legs: C.K!, headgear: 'cap', headgearColor: C.o! },
   festival_e: { skin: C.s!, hair: WHITE_HAIR, hairStyle: 'short', outfit: C.U!, trim: C.y!, legs: C.K!, accessories: ['staff'] },
-  festival_f: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.L!, trim: C.w!, legs: C.B! },
+  festival_f: { skin: SKIN.cocoa, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.L!, trim: C.w!, legs: C.B! },
   festival_g: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'puffs', outfit: C.R!, trim: C.y!, legs: C.B!, build: 'small' },
   festival_h: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'long', outfit: C.o!, trim: C.c!, robe: true, headgear: 'headband', headgearColor: C.y! },
+  // More of the festival (owner, Oct 29: "too many duplicate people"): every one a different person: young and old,
+  // tall and small, straw hats and madras wraps, a rara drummer, a cook; most of Pòdlimyè, three visitors from abroad.
+  festival_i: { skin: SKIN.ebony, hair: C.G!, hairStyle: 'bald', outfit: C.w!, trim: C.R!, legs: C.u!, beard: C.G!, headgear: 'brimmed', headgearColor: C.N! },
+  festival_j: { skin: SKIN.cocoa, hair: HAIR_BLACK, hairStyle: 'puffs', outfit: C.y!, trim: C.U!, robe: true, build: 'small' },
+  festival_k: { skin: SKIN.espresso, hair: HAIR_DARK, hairStyle: 'braid', outfit: C.U!, trim: C.R!, robe: true, build: 'tall', headgear: 'wrap', headgearColor: C.R! },
+  festival_l: { skin: SKIN.mahogany, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.R!, trim: C.y!, legs: C.w!, accessories: ['drum'] },
+  festival_m: { skin: SKIN.umber, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.P!, trim: C.w!, robe: true, accessories: ['satchel'] },
+  festival_n: { skin: SKIN.ebony, hair: WHITE_HAIR, hairStyle: 'bun', outfit: C.p!, trim: C.y!, robe: true, headgear: 'wrap', headgearColor: C.o!, accessories: ['cane'] },
+  festival_o: { skin: SKIN.cocoa, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.L!, trim: C.y!, legs: C.K!, headgear: 'cap', headgearColor: C.L! },
+  festival_p: { skin: SKIN.espresso, hair: HAIR_BLACK, hairStyle: 'long', outfit: C.o!, trim: C.R!, robe: true, headgear: 'headband', headgearColor: C.R! },
+  festival_q: { skin: SKIN.mahogany, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.c!, trim: C.w!, legs: C.B!, build: 'small' },
+  festival_r: { skin: SKIN.umber, hair: HAIR_BLACK, hairStyle: 'short', outfit: 0xa89c86, trim: C.o!, legs: C.B!, beard: HAIR_BLACK, headgear: 'brimmed', headgearColor: C.N!, accessories: ['satchel'] },
+  festival_s: { skin: SKIN.ebony, hair: HAIR_DARK, hairStyle: 'bun', outfit: C.w!, trim: C.U!, robe: true, headgear: 'wrap', headgearColor: C.U!, accessories: ['apron'] },
+  festival_t: { skin: SKIN.cocoa, hair: HAIR_DARK, hairStyle: 'curly', outfit: C.m!, trim: C.y!, legs: C.K!, build: 'tall', accessories: ['sash'] },
+  festival_u: { skin: SKIN.copper, hair: HAIR_BLACK, hairStyle: 'long', outfit: TEAL, trim: C.w!, legs: C.B!, headgear: 'headband', headgearColor: C.R! },
+  festival_v: { skin: SKIN.amber, hair: HAIR_BLACK, hairStyle: 'short', outfit: 0xd8c08a, trim: C.y!, legs: C.B!, beard: HAIR_BLACK, headgear: 'wrap', headgearColor: C.w!, accessories: ['satchel'] },
+  festival_w: { skin: SKIN.rose, hair: C.B!, hairStyle: 'short', outfit: C.u!, trim: C.w!, legs: C.w!, headgear: 'cap', headgearColor: C.u! },
+  festival_x: { skin: SKIN.espresso, hair: HAIR_BLACK, hairStyle: 'puffs', outfit: C.y!, trim: C.R!, robe: true, accessories: ['sash'] },
+  // The pilgrims on the temple path (Chapter 1): white and cream for the Temple of Elodie, staffs and wraps.
+  temple_pilgrim_a: { skin: SKIN.umber, hair: WHITE_HAIR, hairStyle: 'short', outfit: C.w!, trim: C.y!, robe: true, accessories: ['staff'] },
+  temple_pilgrim_b: { skin: SKIN.mahogany, hair: HAIR_DARK, hairStyle: 'braid', outfit: C.w!, trim: C.U!, robe: true, headgear: 'wrap', headgearColor: C.w! },
+  temple_pilgrim_c: { skin: SKIN.ebony, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: COTTON, trim: C.y!, legs: C.B!, accessories: ['satchel'] },
+  temple_pilgrim_d: { skin: SKIN.cocoa, hair: C.G!, hairStyle: 'bun', outfit: C.h!, trim: C.R!, robe: true, accessories: ['cane'] },
+  temple_pilgrim_e: { skin: SKIN.espresso, hair: HAIR_BLACK, hairStyle: 'long', outfit: C.w!, trim: C.p!, robe: true, headgear: 'headband', headgearColor: C.y! },
+  temple_pilgrim_f: { skin: SKIN.umber, hair: HAIR_BLACK, hairStyle: 'curly', outfit: C.w!, trim: C.U!, legs: C.B!, build: 'small' },
+  temple_pilgrim_g: { skin: SKIN.mahogany, hair: WHITE_HAIR, hairStyle: 'bald', outfit: C.h!, trim: C.y!, robe: true, beard: WHITE_HAIR, accessories: ['staff'] },
+  temple_pilgrim_h: { skin: SKIN.fawn, hair: HAIR_BLACK, hairStyle: 'bun', outfit: 0xd8d0c0, trim: C.p!, robe: true, accessories: ['satchel'] },
 
   // Zetwal, the Echo (fifty years ago).
   echo_soldier: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0x6a5230, trim: C.R!, legs: C.b!, headgear: 'cap', headgearColor: 0x5a4428 },
@@ -328,7 +419,7 @@ export const NPC_SPRITES: Record<string, PlaceholderCharacter> = {
   baker: { skin: C.s!, hair: HAIR_DARK, hairStyle: 'bun', outfit: 0xe8dcc0, trim: C.U!, legs: C.B!, headgear: 'wrap', headgearColor: C.U!, accessories: ['apron'] },
   echo_quartermaster: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0x6a5230, trim: C.y!, legs: C.b!, headgear: 'cap', headgearColor: 0x5a4428, accessories: ['satchel'] },
   echo_aide: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'short', outfit: 0x4a3a2a, trim: C.y!, legs: C.b!, headgear: 'cap', headgearColor: 0x4a3a2a, accessories: ['satchel'] },
-  echo_messenger: { skin: C.T!, hair: HAIR_DARK, hairStyle: 'braid', outfit: 0x8a6a3a, trim: C.N!, legs: C.b! },
+  echo_messenger: { skin: SKIN.cocoa, hair: HAIR_DARK, hairStyle: 'braid', outfit: 0x8a6a3a, trim: C.N!, legs: C.b! },
   echo_builder: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: 0x8a7a68, trim: C.B!, legs: C.b!, headgear: 'brimmed', headgearColor: C.N! },
   echo_drummer: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'short', outfit: 0x6a5230, trim: C.y!, legs: C.b!, headgear: 'cap', headgearColor: C.R!, accessories: ['drum'] },
   echo_cane_worker: { skin: C.s!, hair: HAIR_BLACK, hairStyle: 'braid', outfit: 0x9a8a70, trim: C.o!, legs: C.b!, headgear: 'wrap', headgearColor: 0xc85a6a },

@@ -1959,7 +1959,7 @@
             {
               "name": "looks",
               "type": "string",
-              "value": "festival_a,festival_b,festival_c,festival_d,festival_e,festival_f,festival_g,festival_h"
+              "value": "festival_a,festival_b,festival_c,festival_d,festival_e,festival_f,festival_g,festival_h,festival_i,festival_j,festival_k,festival_l,festival_m,festival_n,festival_o,festival_p,festival_q,festival_r,festival_s,festival_t,festival_u,festival_v,festival_w,festival_x"
             }
           ]
         },
@@ -1987,7 +1987,7 @@
             {
               "name": "looks",
               "type": "string",
-              "value": "festival_a,festival_b,festival_c,festival_d,festival_e,festival_f,festival_g,festival_h"
+              "value": "festival_a,festival_b,festival_c,festival_d,festival_e,festival_f,festival_g,festival_h,festival_i,festival_j,festival_k,festival_l,festival_m,festival_n,festival_o,festival_p,festival_q,festival_r,festival_s,festival_t,festival_u,festival_v,festival_w,festival_x"
             }
           ]
         }

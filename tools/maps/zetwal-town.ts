@@ -3,6 +3,9 @@
 // years ago, the night before the Sun Accord was signed: a revolutionary camp of tents and barricades.
 
 import { Grid, type MapSource, type ObjSpec } from './painter.ts';
+
+/** The festival's crowd: festival_a to festival_x (assets.config.ts), all different. */
+export const FESTIVAL_FOLK = 'abcdefghijklmnopqrstuvwx'.split('').map((c) => `festival_${c}`).join(',');
 import { BAKERY_TOWN_DOOR } from '../../src/data/bakery.ts';
 
 const OPENS_HOME = { if: 'story.elodie_left', closed: 'plaza_door_closed' };
@@ -164,8 +167,10 @@ export function zetwalTown(): MapSource {
     obj('plaza_lantern_ne', 21, 4, { kind: 'lantern_glow', era: 'present', if: 'story.anissa_woke' }),
     obj('plaza_lantern_sw', 10, 15, { kind: 'lantern_glow', era: 'present', if: 'story.anissa_woke' }),
     obj('plaza_lantern_se', 25, 15, { kind: 'lantern_glow', era: 'present', if: 'story.anissa_woke' }),
-    { layer: 'crowds', name: 'plaza_festival', x: 11, y: 6, w: 14, h: 9, props: { count: '18', looks: 'festival_a,festival_b,festival_c,festival_d,festival_e,festival_f,festival_g,festival_h', if: '!story.anissa_woke' } },
-    { layer: 'crowds', name: 'plaza_evening', x: 11, y: 6, w: 14, h: 9, props: { count: '6', looks: 'festival_a,festival_b,festival_c,festival_d,festival_e,festival_f,festival_g,festival_h', if: 'story.anissa_woke' } },
+    // Twenty-four different people (owner, Oct 29: "too many duplicate people"); engine/crowd.ts crowdLooks never
+    // puts two who look the same near each other.
+    { layer: 'crowds', name: 'plaza_festival', x: 11, y: 6, w: 14, h: 9, props: { count: '18', looks: FESTIVAL_FOLK, if: '!story.anissa_woke' } },
+    { layer: 'crowds', name: 'plaza_evening', x: 11, y: 6, w: 14, h: 9, props: { count: '6', looks: FESTIVAL_FOLK, if: 'story.anissa_woke' } },
     { layer: 'echo_zones', name: 'plaza_stone', x: 11, y: 9, w: 3, h: 2, props: { if: 'item.sun_locket', onEcho: 'plaza_echo_enter' } },
     {
       layer: 'echo_zones',
