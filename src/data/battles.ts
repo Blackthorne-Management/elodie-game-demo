@@ -137,11 +137,11 @@ export const BATTLES: Readonly<Record<string, BattleDef>> = {
       start: [
         {
           title: 'How to fight',
-          text: 'Fights go in turns; who acts next is shown top right. On your turn, choose a command (bottom right), then a target: an arrow shows who. Tap them, or use the arrows and A; B goes back.',
+          text: 'Fights go in turns; who acts next is shown top right. On your turn, choose a command (bottom right), then a target: an arrow shows who. Tap them, or use {Move} and {A}; {B} goes back.',
         },
         {
           title: 'Attack and Skill',
-          text: "Attack strikes with your weapon; a staff barely hurts. Skill opens spells that cost SP (the blue bar). Gianna's Sunthread is a ray of light, far stronger than her staff.",
+          text: "Attack strikes with your weapon; a staff barely hurts. Skill opens spells that cost SP (the blue bar; '3 SP' beside a spell is its price). Gianna's Sunthread is a ray of light, far stronger than her staff.",
         },
         {
           title: 'Guard and Item',
@@ -152,7 +152,7 @@ export const BATTLES: Readonly<Record<string, BattleDef>> = {
         moves: [
           {
             title: 'Weapon moves',
-            text: 'Fighters with weapons (Yari\'s bow, later blades) get moves under Attack. Strong moves need time to ready again: the number beside one is the turns left.',
+            text: 'Fighters with weapons (Yari\'s bow, later blades) get moves under Attack. Strong moves need time to ready again: "ready in 2" means two more turns.',
           },
         ],
         light: [

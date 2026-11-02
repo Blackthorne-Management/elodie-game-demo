@@ -4,6 +4,7 @@
 // ART_FILES describes into quest/art/ and it is used instead of the placeholder (a missing file
 // keeps the placeholder). See docs/quest/ART-STYLE.md for sizes, layout and the palette.
 
+import type { Condition } from './engine/conditions.ts';
 import { ECHO_SHIMMER, ENEMY_ART, ITEM_ART, OBJECT_ART, PALETTE, TILE_ART, WEAPON_ART, type BattleWeaponArt, type ObjectArt, type PixelArt } from './assets.pixels.ts';
 
 export { ECHO_SHIMMER, ENEMY_ART, ITEM_ART, OBJECT_ART, PALETTE, TILE_ART, WEAPON_ART, type BattleWeaponArt, type ObjectArt, type PixelArt };
@@ -166,8 +167,11 @@ export interface PlaceholderCharacter {
   legs?: number;
   /** A long dress or robe down to the ankles. */
   robe?: boolean;
-  /** small: a child or Anissa; tall: Elodie. */
-  build?: 'normal' | 'small' | 'tall';
+  /**
+   * small: a child or Anissa; tall: Elodie. boar (Chapter 1's Cane Road): four legs, drawn by scenes/pixels.ts drawBoar:
+   * `outfit` the coat, `hair` the bristles, `trim` the tusks, `skin` the snout.
+   */
+  build?: 'normal' | 'small' | 'tall' | 'boar';
   headgear?: Headgear;
   headgearColor?: number;
   beard?: number;
@@ -371,6 +375,8 @@ export const NPC_SPRITES: Record<string, PlaceholderCharacter> = {
   town_guard: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.U!, trim: C.I!, legs: C.u!, headgear: 'helmet', headgearColor: C.I! },
   festival_kid: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.y!, trim: C.c!, legs: C.B!, build: 'small' },
   elder: { skin: C.s!, hair: WHITE_HAIR, hairStyle: 'short', outfit: 0x7a6a8a, trim: C.w!, legs: C.K!, accessories: ['cane'] },
+  // The boar out of the cane on the Cane Road (Chapter 1's first fight; review Nov 1, finding 2): it charges onto the map.
+  cane_boar: { skin: 0x8a5a4a, hair: 0x2a1a14, hairStyle: 'short', outfit: 0x5a3a28, trim: 0xf4ecd8, build: 'boar' },
   ferryman: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'short', outfit: C.c!, trim: C.N!, legs: C.B!, headgear: 'brimmed', headgearColor: C.N! },
   pilgrim: { skin: C.T!, hair: C.B!, hairStyle: 'long', outfit: 0xa89c86, trim: C.g!, robe: true, accessories: ['staff'] },
   acolyte: { skin: C.S!, hair: HAIR_BLACK, hairStyle: 'cropped', outfit: C.w!, trim: C.y!, robe: true },
@@ -507,6 +513,15 @@ export const ART_FILES = {
   sheetColumns: 3,
   sheetRows: ['down', 'left', 'right', 'up'] as const,
 } as const;
+
+/**
+ * Fog round the party (review Nov 1, the Chapter 7 fog maze): clear for `clear` tiles round Gianna, thickening to
+ * `alpha` of `color` at `thick` tiles, so the lanes are found by walking them, not read off the screen. Present only.
+ * (The demo has no fog map; kept for parity with the full quest.)
+ */
+export const MAP_FOG: readonly { maps: readonly string[]; if: Condition; color: number; alpha: number; clear: number; thick: number }[] = [
+  { maps: ['kuroshi-fogmaze'], if: { all: [] }, color: 0xd8dae0, alpha: 0.94, clear: 3, thick: 7 },
+];
 
 /**
  * The Echo screen filter (guide 6.1): warm sepia, slightly dithered. A sepia colour matrix where the
@@ -828,12 +843,30 @@ export const BATTLE_ART = {
     { x: 92, y: 94 },
     { x: 60, y: 124 },
   ],
+  /**
+   * The foes' places (Nov 1 playtests, Claude's call): a zigzag 32 px apart, back and front by turns, so every foe's
+   * name plate fits over its head between its neighbours; two more far back for those who walk in mid-fight (up to six).
+   */
   enemySlots: [
-    { x: 212, y: 108 },
-    { x: 228, y: 130 },
-    { x: 262, y: 98 },
-    { x: 278, y: 122 },
+    { x: 200, y: 104 },
+    { x: 232, y: 130 },
+    { x: 264, y: 104 },
+    { x: 296, y: 130 },
+    { x: 216, y: 78 },
+    { x: 280, y: 78 },
   ],
+  /**
+   * A walking sprite standing in for battle art (the Crown's troops, a member with no painted stance) is drawn this
+   * much larger, so it stands near the painted stances' height; the foes' leader (the fight's boss) larger still.
+   * 1.25 and 1.5 keep whole screen pixels at render scale 4 (desktop, most phones); nearest-neighbour, never blurred.
+   */
+  standInScale: 1.25,
+  leaderScale: 1.5,
+  /** The foes' name plates: the short name's size, and the plate's HP bar (game pixels). */
+  plateFontPx: 7,
+  plateBarH: 3,
+  /** Plates stay between the message band (one line) and the strip. */
+  plateTop: 29,
   /** Anissa stands behind everyone (she is never a target). */
   anissa: { x: 24, y: 108 },
   /** The horizon of the painted scene (above eye level: the view is from a little above). */
@@ -863,6 +896,14 @@ export const BATTLE_BACKDROPS: Readonly<Record<string, {
   ground: number;
   groundDark: number;
   groundLight: number;
+  /**
+   * Indoors (Nov 1 playtests: the caney and the sea cave were fought under an open sunset), drawn in place of the sky,
+   * clouds, hills and trees: 'hall' (the sky's bands as the back wall, with pillars and a beam), 'caney' (a Taino
+   * round house: thatch overhead, posts, woven walls, the door open on the burning night), 'cave' (rock, hanging
+   * stone; `mouth`: an arch open on the night sea, the water lapping inside). Omitted: outdoors.
+   */
+  inside?: 'hall' | 'caney' | 'cave';
+  mouth?: boolean;
 }>> = {
   // The Cane Road outside Zetwal: a blue morning, far hills, the cane, and the packed-earth road.
   cane_road: {

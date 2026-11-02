@@ -135,7 +135,7 @@ export const ACT1: QuestDef = {
       hints: [
         'Will you try the lamp, Gigi? Grandfather asked you.',
         'Stand in front of the lamp and try to light it.',
-        'Face the lamp in the middle of the temple and press A.',
+        'Face the lamp in the middle of the temple and press {A}.',
       ],
     },
     {

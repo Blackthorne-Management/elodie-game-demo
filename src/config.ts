@@ -105,13 +105,13 @@ export const TOUCH_BUTTON_STACK_PX = 72;
 
 /**
  * Where the controls and the minimap go (engine/scaling.ts screenLayout). On a touch screen held
- * sideways the D-pad takes the left bar and A, B, Echo, Menu and the minimap the right bar; each bar
- * is at least TOUCH_SIDE_PX wide (the picture shrinks a little when the screen's own bars are
- * narrower). Held upright, the controls take a bottom bar of at least TOUCH_STACK_PX and the minimap
- * the top bar. Without touch, the minimap goes in a side bar at least MAP_BAR_PX wide, else on the
- * picture's top-left corner.
+ * sideways the picture keeps the largest zoom that fits (the Nov 1 playtests); the D-pad takes the left bar and A, B,
+ * Echo, Menu and the minimap the right bar when those bars are at least TOUCH_SIDE_MIN_PX wide (overlapping the
+ * picture's edge a little where the bar is narrower than the controls), else the controls sit on the picture's corners.
+ * Held upright, the controls take a bottom bar of at least TOUCH_STACK_PX and the minimap the top bar. Without touch,
+ * the minimap goes in a side bar at least MAP_BAR_PX wide, else on the picture's top-left corner.
  */
-export const TOUCH_SIDE_PX = 150;
+export const TOUCH_SIDE_MIN_PX = 90;
 export const TOUCH_STACK_PX = 196;
 export const MAP_BAR_PX = 140;
 
@@ -263,6 +263,12 @@ export const ACTING_MARK = { pulseMs: 1200, bobMs: 400, alphaMin: 0.3, alphaMax:
  * The goddess's second chance. Times in seconds unless named Ms. The fall, loop and rise are the animator's
  * three films (assets.config.ts GAME_OVER_ART); the placeholder drawn in code keeps the same clock.
  */
+/**
+ * How long Gianna stands still before the walking party settles beside her (ms; playtests, Nov 1: followers stopped in
+ * a column behind her and were hidden). Short enough to look deliberate, long enough not to shuffle between taps.
+ */
+export const PARTY_SETTLE_MS = 220;
+
 export const GAME_OVER = {
   /** In the battle: Anissa's cry stays up this long (shot 1), then the battle fades to near-black. */
   cryMs: 1500,

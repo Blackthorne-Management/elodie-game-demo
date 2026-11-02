@@ -1474,6 +1474,12 @@ export const TILE_ART: Readonly<Record<string, PixelArt>> = {
 export interface ObjectArt extends PixelArt {
   /** A soft pulsing light around the drawing (a lit lamp). */
   glow?: { color: number; radius: number };
+  /** A fire: drawn over the night's wash (it lights itself), flickering. */
+  bright?: boolean;
+  /** Smoke rising from it. */
+  smoke?: boolean;
+  /** Drawn at this scale (the houses' hulls at the Muster's piers, a ship's drawing on a 3-tile berth). */
+  scale?: number;
 }
 
 export const OBJECT_ART: Readonly<Record<string, ObjectArt>> = {
@@ -1557,6 +1563,28 @@ export const OBJECT_ART: Readonly<Record<string, ObjectArt>> = {
       '..kgGgggGgggGgggGgggGgggGgggGk..',
       '..KKKKKKKKKKKKKKKKKKKKKKKKKKKK..',
       '...kkkkkkkkkkkkkkkkkkkkkkkkkk...',
+    ],
+  },
+  // Thatch burning on a roof (Chapter 2, the night of the attack; review Nov 1, finding 3): flames and smoke.
+  thatch_fire: {
+    glow: { color: 0xe0782a, radius: 14 },
+    bright: true,
+    smoke: true,
+    rows: [
+      '.......W........',
+      '......kyk.......',
+      '...k..kYk...k...',
+      '..kyk.kYyk.kyk..',
+      '..kYyk.kyYkkYk..',
+      '.kyYYkkyYYyyYyk.',
+      '.kyYWYyoyWYyYok.',
+      'koyYWWYooyWWYyok',
+      'koyYWWYyoyWWYook',
+      'kooyYYyooyYYyook',
+      'kRooyyoRRooyyoRk',
+      'kRRoooRRRRoooRRk',
+      '.kRRRRRkkRRRRRk.',
+      '..kkkkk..kkkkk..',
     ],
   },
   // The light of a lantern lit by Anissa's light (demo review, Oct 17): only the glow; the lantern is the tile.
