@@ -14,6 +14,8 @@ import { fillButtons } from '../input/buttonNames.ts';
 import { audio } from '../audio/player.ts';
 import { BATTLE_MUSIC, VICTORY_MUSIC } from '../audio.config.ts';
 import Phaser from 'phaser';
+import { controlReach } from '../engine/scaling.ts';
+import { controlsOverPicture } from '../input/touch.ts';
 import {
   ANISSA_GLOW,
   BATTLE_ART,
@@ -57,7 +59,7 @@ import {
 import { getRuntime, saveGame } from '../runtime.ts';
 import { fontPx, renderScale, textStyle } from '../ui/text.ts';
 import { playFx, type FxKind, type Point } from './battleFx.ts';
-import { fileKey } from './textures.ts';
+import { fileKey, preloadBattleArt } from './textures.ts';
 import { screenFlash } from './cameraFx.ts';
 import { reduceMotion } from '../ui/reduceMotion.ts';
 import { MenuTrail, actingFighter, actingLightRows, actingMark, battleBackPressed, type BattleMenu } from '../engine/battleMenu.ts';
@@ -242,8 +244,14 @@ export class BattleScene extends Phaser.Scene {
     this.plates = new Map();
   }
 
+  /** Any battle stance file still loading behind the field (scenes/textures.ts), before the fight is drawn. */
+  preload(): void {
+    preloadBattleArt(this);
+  }
+
   create(): void {
     setCurrent(this);
+    this.pops = new Set();
     const cam = this.cameras.main;
     cam.setOrigin(0, 0).setZoom(renderScale());
     this.seed = Date.now() >>> 0 || 1;
@@ -849,7 +857,9 @@ export class BattleScene extends Phaser.Scene {
   private rowRect(i: number): { x: number; y: number; w: number; h: number } {
     const slot = i % VISIBLE_ROWS;
     const col = Math.floor(slot / 3);
-    return { x: 184 + col * 68, y: BATTLE_ART.stripY + 2 + (slot % 3) * 14.5, w: 66, h: 14 };
+    // Narrower where a touch control reaches over the strip's right end (B on a sideways phone; Nov 10), not below 48.
+    const w = Math.max(48, Math.min(66, Math.floor((VIEW_WIDTH - 2 - this.rightInset - 184 - 2) / 2)));
+    return { x: 184 + col * (w + 2), y: BATTLE_ART.stripY + 2 + (slot % 3) * 14.5, w, h: 14 };
   }
 
   private rowHit(i: number, x: number, y: number): boolean {
@@ -864,9 +874,22 @@ export class BattleScene extends Phaser.Scene {
   // ---- Drawing ------------------------------------------------------------------------------------
 
   /** The painted scene: sky, clouds, far hills, trees, the cane, and the road the fight stands on. */
+  /**
+   * The painted scene behind the fight. It never changes during the fight, so it is drawn once into a texture at the
+   * screen's sharpness (the render scale) and shown as one picture: the hundreds of shapes it is made of were drawn
+   * again every frame before (the performance review, Nov 13). The picture is the same, pixel for pixel.
+   */
   private drawBackdrop(id: string): void {
+    const S = renderScale();
+    const g = this.make.graphics({}, false);
+    this.paintBackdrop(g, id);
+    g.setScale(S);
+    this.add.renderTexture(0, 0, VIEW_WIDTH * S, VIEW_HEIGHT * S).setOrigin(0, 0).setScale(1 / S).setDepth(0).draw(g, 0, 0);
+    g.destroy();
+  }
+
+  private paintBackdrop(g: Phaser.GameObjects.Graphics, id: string): void {
     const p = BATTLE_BACKDROPS[id] ?? BATTLE_BACKDROPS.cane_road!;
-    const g = this.add.graphics().setDepth(0);
     const W = VIEW_WIDTH;
     const horizon = BATTLE_ART.horizon;
     // Sky in bands, with a dithered seam between each.
@@ -1169,6 +1192,9 @@ export class BattleScene extends Phaser.Scene {
     this.message = text;
   }
 
+  /** The damage and heal numbers in the air now. */
+  private pops = new Set<Phaser.GameObjects.Text>();
+
   private pop(key: string, text: string, color: string): void {
     const s = this.sprites.get(key);
     if (!s || !text) return;
@@ -1177,7 +1203,20 @@ export class BattleScene extends Phaser.Scene {
     const top = Math.min(s.y - s.displayHeight * (this.home.get(key)?.hr ?? 1), plate ? plate.y : Infinity);
     // Over the depth of the name plates (the UI layer), so the number is never under a name.
     const t = this.add.text(s.x, Math.max(10, top - 1), text, textStyle(color, { fontStyle: 'bold', stroke: '#14101a', strokeThickness: 2 })).setOrigin(0.5, 1).setDepth(450);
-    this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, delay: 250, duration: BATTLE_ART.popMs, onComplete: () => t.destroy() });
+    // Never over a tip or tutorial page (Nov 4: a "13" landed in the middle of the Spark tip's text).
+    t.setVisible(this.tutorial.length === 0);
+    this.pops.add(t);
+    this.tweens.add({
+      targets: t,
+      y: t.y - 14,
+      alpha: 0,
+      delay: 250,
+      duration: BATTLE_ART.popMs,
+      onComplete: () => {
+        this.pops.delete(t);
+        t.destroy();
+      },
+    });
   }
 
   /** The fighter whose turn it is (engine/battleMenu.ts actingFighter), while the player chooses; none under a tutorial page. */
@@ -1268,9 +1307,20 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
+  /** How far a touch control reaches over the strip's right end (game pixels; 0 without one), set on every redraw. */
+  private rightInset = 0;
+
+  /** How far the touch controls reach over the strip's left end (game pixels, at most 24; 0 without one). */
+  private padInset(stripY: number): number {
+    const reach = controlReach(controlsOverPicture(this.game.canvas, VIEW_WIDTH, VIEW_HEIGHT), VIEW_WIDTH, stripY, VIEW_HEIGHT);
+    this.rightInset = reach.right > 0 ? reach.right + 1 : 0;
+    return reach.left <= 2 ? 0 : Math.min(24, Math.ceil(reach.left - 2));
+  }
+
   /** The top bar, the message band, names and bars, Anissa's Spark, the strip and the menu. */
   private redraw(): void {
     this.ui.removeAll(true);
+    for (const t of this.pops) t.setVisible(this.tutorial.length === 0);
     const b = this.battle;
     const g = this.add.graphics();
     this.ui.add(g);
@@ -1373,22 +1423,30 @@ export class BattleScene extends Phaser.Scene {
     const shown = b.fighters;
     const n = shown.length;
     const rowH = Math.min(14, Math.floor((VIEW_HEIGHT - Y - 4) / Math.max(1, n)));
+    // Clear of the touch D-pad where it reaches over the strip (review Nov 7, finding 5: it covered the names): the rows
+    // start after it, and the two bars give up the room (up to 24 px), so the numbers and tags keep their places.
+    const k = this.padInset(Y);
+    const hpW = 30 - Math.min(k, 12);
+    const spW = 20 - Math.max(0, Math.min(k - 12, 12));
+    const hpX = 61 + k;
+    const spLabelX = hpX + hpW + 22;
+    const spX = spLabelX + 9;
     shown.forEach((p, i) => {
       const y = Y + 3 + i * rowH;
       // The acting fighter's row is lit and framed in gold, like the light at their feet.
       const on = this.actingKey() === p.key;
       const aimed = this.menu === 'target' && this.aimed().includes(p);
-      if (on || aimed) g.fillStyle(on ? 0x2e2638 : 0x3a3020, 1).fillRect(2, y - 1, 174, rowH);
-      if (on) g.lineStyle(1, BATTLE_ART.cursor, 1).strokeRect(2.5, y - 0.5, 173, rowH - 1);
-      text(6, y, `${on ? '>' : ' '}${p.name}`, on ? UI.accentText : p.down ? UI.dimText : UI.text);
+      if (on || aimed) g.fillStyle(on ? 0x2e2638 : 0x3a3020, 1).fillRect(2 + k, y - 1, 174 - k, rowH);
+      if (on) g.lineStyle(1, BATTLE_ART.cursor, 1).strokeRect(2.5 + k, y - 0.5, 173 - k, rowH - 1);
+      text(6 + k, y, `${on ? '>' : ' '}${p.name}`, on ? UI.accentText : p.down ? UI.dimText : UI.text);
       // Each bar is named (Nov 1 playtests: two unlabelled bars and numbers read as nothing).
       const low = p.hp / p.maxHp < 0.35;
-      text(52, y + 1, 'HP', UI.dimText, { fontSize: '6px' });
-      bar(61, y + 4, 30, p.hp, p.maxHp, low ? BATTLE_ART.hpLow : BATTLE_ART.hpBar);
-      text(94, y, `${p.hp}`, low ? '#e88a7a' : UI.text);
-      text(113, y + 1, 'SP', BATTLE_ART.spText, { fontSize: '6px' });
-      bar(122, y + 4, 20, p.sp, p.maxSp, BATTLE_ART.spBar);
-      text(145, y, `${p.sp}`, BATTLE_ART.spText);
+      text(52 + k, y + 1, 'HP', UI.dimText, { fontSize: '6px' });
+      bar(hpX, y + 4, hpW, p.hp, p.maxHp, low ? BATTLE_ART.hpLow : BATTLE_ART.hpBar);
+      text(hpX + hpW + 3, y, `${p.hp}`, low ? '#e88a7a' : UI.text);
+      text(spLabelX, y + 1, 'SP', BATTLE_ART.spText, { fontSize: '6px' });
+      bar(spX, y + 4, spW, p.sp, p.maxSp, BATTLE_ART.spBar);
+      text(spX + spW + 3, y, `${p.sp}`, BATTLE_ART.spText);
       tags(162, y + 1, p);
     });
 
@@ -1445,7 +1503,7 @@ export class BattleScene extends Phaser.Scene {
       }
     });
     const pages = Math.ceil(this.rows.length / VISIBLE_ROWS);
-    if (pages > 1) text(VIEW_WIDTH - 4, VIEW_HEIGHT - 9, `${page + 1}/${pages}`, UI.dimText, { fontSize: '6px' }).setOrigin(1, 0);
+    if (pages > 1) text(VIEW_WIDTH - 4 - this.rightInset, VIEW_HEIGHT - 9, `${page + 1}/${pages}`, UI.dimText, { fontSize: '6px' }).setOrigin(1, 0);
   }
 
   /**

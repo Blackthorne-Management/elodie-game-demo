@@ -56,6 +56,63 @@ export function fitRect(
   };
 }
 
+/** A rectangle in game pixels. */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * How far the touch controls over the picture (`controls`, game pixels) reach in from each side across the rows
+ * [y0, y1): a control whose middle is on the left half counts from the left edge, the others from the right. 0 where
+ * nothing reaches (review Nov 7, finding 5; Nov 10: the dialogue box, the pages and the battle's strip keep clear).
+ */
+export function controlReach(controls: readonly Rect[], viewW: number, y0 = 0, y1 = Number.POSITIVE_INFINITY): { left: number; right: number } {
+  let left = 0;
+  let right = 0;
+  for (const r of controls) {
+    if (r.y >= y1 || r.y + r.h <= y0 || r.w <= 0 || r.h <= 0) continue;
+    if (r.x + r.w / 2 < viewW / 2) left = Math.max(left, r.x + r.w);
+    else right = Math.max(right, viewW - r.x);
+  }
+  return { left: Math.ceil(left), right: Math.ceil(right) };
+}
+
+/**
+ * Where a full page (the menu, a shop) is drawn so the touch controls miss it: scaled down to fit between what reaches
+ * in from the left and the right (with `margin` px to spare), never below `minScale` (then centred between them, and
+ * the controls still touch its edges, and `clear` is false), and centred top to bottom. `{ x: 0, y: 0, scale: 1, clear:
+ * true }` with nothing in the way.
+ */
+export function pageFit(
+  controls: readonly Rect[],
+  viewW: number,
+  viewH: number,
+  minScale: number,
+  margin = 1,
+): { x: number; y: number; scale: number; clear: boolean } {
+  const { left, right } = controlReach(controls, viewW);
+  if (left === 0 && right === 0) return { x: 0, y: 0, scale: 1, clear: true };
+  const room = viewW - (left > 0 ? left + margin : 0) - (right > 0 ? right + margin : 0);
+  const scale = Math.max(minScale, Math.min(1, Math.floor((room / viewW) * 1000) / 1000));
+  const w = viewW * scale;
+  const from = left > 0 ? left + margin : 0;
+  const x = w <= room ? from + (room - w) / 2 : Math.max(0, Math.min(viewW - w, from + (room - w) / 2));
+  return { x: Math.round(x * 100) / 100, y: Math.round(((viewH - viewH * scale) / 2) * 100) / 100, scale, clear: w <= room + 0.01 };
+}
+
+/**
+ * Whether a touch screen gets the compact controls (Claude's call, Nov 10; the Nov 7 review's 5): sideways and either
+ * with no side bars for them (`overlay`, the picture edge to edge) or shorter than `maxHeight`. Upright and without
+ * touch, never.
+ */
+export function compactControls(viewportW: number, viewportH: number, mode: ScreenMode, touch: boolean, maxHeight: number): boolean {
+  if (!touch || viewportW < viewportH) return false;
+  return mode === 'overlay' || viewportH < maxHeight;
+}
+
 export type ScreenMode = 'side' | 'stack' | 'overlay';
 
 export interface ScreenLayout {
@@ -67,7 +124,8 @@ export interface ScreenLayout {
 /**
  * Fit the picture and decide where the controls and the minimap go. With touch, sideways screens keep
  * the largest picture and put the controls in the side bars when those are at least `sideMin` wide
- * (else on the picture's corners); upright screens reserve `stack` px top and bottom. Without touch the
+ * (else on the picture's corners); upright screens reserve `stack` px top and bottom (with `stackTop`, the picture sits
+ * at the top under that strip and the `2 * stack` px go below it). Without touch the
  * minimap uses a side bar when the natural one is at least `mapBar` wide.
  */
 export function screenLayout(
@@ -78,7 +136,7 @@ export function screenLayout(
   maxZoom: number,
   minInteger: number,
   touch: boolean,
-  bars: { sideMin: number; stack: number; mapBar: number },
+  bars: { sideMin: number; stack: number; mapBar: number; stackTop?: number },
 ): ScreenLayout {
   const natural = fitRect(viewportW, viewportH, gameW, gameH, maxZoom, minInteger);
   const centred = (r: ScreenRect): ScreenRect => ({
@@ -92,6 +150,12 @@ export function screenLayout(
     // to keep 150 px bars, though 2x fits). The translucent controls sit in the bars when they are at least
     // `sideMin` wide, overlapping the picture's edges a little; narrower, they go on the picture's corners.
     return { rect: natural, mode: natural.left >= bars.sideMin ? 'side' : 'overlay' };
+  }
+  // Upright with `stackTop` (review Nov 7, finding 6): the picture first, at the top under a strip of `stackTop` px (the
+  // full-screen button), as large as fits with `2 * stack` px left below it for the minimap and the controls.
+  if (bars.stackTop !== undefined) {
+    const r = fitRect(viewportW, Math.max(gameH, viewportH - 2 * bars.stack), gameW, gameH, maxZoom, minInteger);
+    return { rect: { ...r, left: Math.max(0, Math.floor((viewportW - r.width) / 2)), top: bars.stackTop }, mode: 'stack' };
   }
   if (natural.top >= bars.stack) return { rect: natural, mode: 'stack' };
   return { rect: centred(fitRect(viewportW, Math.max(gameH, viewportH - 2 * bars.stack), gameW, gameH, maxZoom, minInteger)), mode: 'stack' };

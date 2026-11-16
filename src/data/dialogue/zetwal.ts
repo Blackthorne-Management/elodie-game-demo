@@ -1317,14 +1317,14 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
     cold: { lines: [nar('The great Gaze lamp. Cold, and full of oil.')] },
     wake: {
       lines: [
-        say(G, 'Let me try.'),
+        say(G, 'Let me try.', { mood: 'determined' }),
         nar('You cup your hands and call a small flame, the way you were taught in the archive.'),
         nar('It is a good flame: small, steady, and it wastes nothing.'),
         nar("At the lamp's lip it gutters out, as if the lamp is waiting for something else."),
         // Beside Gianna, not behind her (review Nov 1, finding 9: the scene is about her).
-        say(A, 'Gigi...', { stage: [{ do: 'walk', actor: 'follower', to: { x: 16, y: 4 }, facing: 'up' }] }),
+        say(A, 'Gigi...', { mood: 'grave', stage: [{ do: 'walk', actor: 'follower', to: { x: 16, y: 4 }, facing: 'up' }] }),
         say(A, "It's calling me. Like someone saying my name from very far away."),
-        say(G, 'Anissa? Stay back. Let me...'),
+        say(G, 'Anissa? Stay back. Let me...', { mood: 'shaken' }),
         say(A, "I can't stop it. I'm sorry, I can't..."),
         // Shown (review Nov 1, finding 9): a halo on her, a beam to the lamp, a pale gold wash (FieldScene anissaLight).
         nar('Light pours out of Anissa. Not fire: light, the color of morning through water.', {
@@ -2002,7 +2002,7 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
         say('crown_consul', 'Ah, the Head of State\'s daughter. His Majesty\'s consul to Zetwal, at your service. Truly.'),
         say('crown_consul', 'I bring nothing but goodwill and a few papers to sign. The Chancellor will see me tonight, I am sure.'),
         say('crown_consul', 'We have so much to discuss. The old treaties are so long, and so very few people have read all of them.'),
-        say(A, "Gigi... I don't like him."),
+        say(A, "Gigi... I don't like him.", { mood: 'grave' }),
       ],
     },
     // After the lamp he waits outside the Chancellor's office (decision D, Oct 19), until her scene.
@@ -2452,7 +2452,7 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
             { do: 'wait', ms: 500 },
           ],
         }),
-        say(A, 'Gigi...'),
+        say(A, 'Gigi...', { mood: 'grave' }),
         nar('A boar bursts onto the road, bristles up, tusks low, and plants itself in the road ahead of you.', {
           stage: [
             { do: 'look', actor: 'boar' },
@@ -2461,7 +2461,7 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
             { do: 'look', actor: 'player' },
           ],
         }),
-        say(G, 'Stay behind me, Nissa.', { stage: [{ do: 'walk', actor: 'follower', to: { x: 8, y: 13 }, facing: 'right' }] }),
+        say(G, 'Stay behind me, Nissa.', { mood: 'determined', stage: [{ do: 'walk', actor: 'follower', to: { x: 8, y: 13 }, facing: 'right' }] }),
         say(A, '...I will.', { set: { 'story.boar_seen': true, 'battle.next': 'intro_boar' } }),
       ],
     },
@@ -2473,7 +2473,7 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
             { do: 'face', actor: 'player', facing: 'right' },
           ],
         }),
-        say(G, 'Again, then. Stay behind me.', { set: { 'battle.next': 'intro_boar' } }),
+        say(G, 'Again, then. Stay behind me.', { mood: 'determined', set: { 'battle.next': 'intro_boar' } }),
       ],
     },
   }),
@@ -2521,7 +2521,7 @@ export const ZETWAL_DIALOGUE: readonly DialogueScript[] = [
       set: { 'side.cane_name.recorded': true },
       lines: [
         nar('The list ends with the line the stones carry: "the cutters of the Cane Road, whose names the Crown did not keep."'),
-        say(G, 'Then we keep them.'),
+        say(G, 'Then we keep them.', { mood: 'determined' }),
         nar('Beneath it, in her best archive hand, Gianna writes: Rose-Aimée, cane cutter, the Cane Road.'),
       ],
     },

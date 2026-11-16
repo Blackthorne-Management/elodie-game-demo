@@ -62,6 +62,7 @@ import type { Era, Pos } from '../engine/types.ts';
 import type { InputManager } from '../input/actions.ts';
 import type { MenuItem } from './MenuPanel.ts';
 import type { PanelLine } from './TextPanel.ts';
+import { PageFit } from './clearOfControls.ts';
 import { RealmOverlay } from './RealmOverlay.ts';
 import { fillButtons } from '../input/buttonNames.ts';
 import { charPx, textStyle } from './text.ts';
@@ -77,6 +78,8 @@ export interface MenuContext {
   mapId: string;
   era: Era;
   journal: () => PanelLine[];
+  /** The chapter the Journal is on ("Chapter 11: The War of the Harbor"), the main quest's name on the Quests page. */
+  chapterTitle?: () => string | undefined;
   system: () => MenuItem[];
   /** Every map (the city map is drawn from them), and a map's Tiled data (its tiles). */
   maps: Readonly<Record<string, GameMap>>;
@@ -102,6 +105,16 @@ function line(a: Pos, b: Pos): Pos[] {
   const out: Pos[] = [];
   for (let i = 0; i <= n; i++) out.push({ x: Math.round(a.x + ((b.x - a.x) * i) / n), y: Math.round(a.y + ((b.y - a.y) * i) / n) });
   return out;
+}
+
+/** Shorten a text to `width` game pixels, ending it with an ellipsis (it is measured, so any text size fits). */
+export function ellipsize(t: Phaser.GameObjects.Text, width: number): void {
+  if (t.width <= width) return;
+  let s = t.text;
+  while (s.length > 1 && t.width > width) {
+    s = s.slice(0, -1).trimEnd();
+    t.setText(`${s}…`);
+  }
 }
 
 const DEPTH = 6000;
@@ -151,11 +164,15 @@ export class GameMenu {
   private blink: Phaser.Tweens.Tween | null = null;
   /** The painted realm map, a page element over the map area. */
   private readonly realmOverlay: RealmOverlay;
+  /** Where the page sits, clear of the touch controls on a sideways phone (Nov 10). */
+  private readonly fit = new PageFit();
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     const bg = scene.add.graphics();
-    bg.fillStyle(UI.boxFill, 1).fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    // The fill runs past the page's edges: a page drawn smaller to miss the touch controls (ui/clearOfControls.ts) still
+    // covers the whole picture.
+    bg.fillStyle(UI.boxFill, 1).fillRect(-VIEW_WIDTH, -VIEW_HEIGHT, VIEW_WIDTH * 3, VIEW_HEIGHT * 3);
     bg.lineStyle(1, UI.boxBorder, 1).strokeRect(1.5, 1.5, VIEW_WIDTH - 3, VIEW_HEIGHT - 3);
     this.content = scene.add.container(0, 0);
     this.root = scene.add.container(0, 0, [bg, this.content]).setScrollFactor(0).setDepth(DEPTH).setVisible(false);
@@ -231,11 +248,17 @@ export class GameMenu {
   tap(x: number, y: number): MenuRequest[] {
     const ctx = this.ctx;
     if (!ctx) return [];
-    const hit = [...this.hits].reverse().find((h) => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h);
+    const at = this.fit.toPage(x, y);
+    const hit = [...this.hits].reverse().find((h) => at.x >= h.x && at.x < h.x + h.w && at.y >= h.y && at.y < h.y + h.h);
     if (!hit) return [];
     const out = hit.run();
     if (this.visible) this.draw();
     return out;
+  }
+
+  /** Where a point of the page (its own pixels) is on the screen, in game pixels (the tests tap there). */
+  pageToGame(x: number, y: number): { x: number; y: number } {
+    return this.fit.fromPage(x, y);
   }
 
   private hit(x: number, y: number, w: number, h: number, run: () => MenuRequest[] | void): void {
@@ -434,6 +457,7 @@ export class GameMenu {
     this.blink?.remove();
     this.blink = null;
     this.realmOverlay.hide();
+    this.fit.apply(this.scene, this.root);
     this.content.removeAll(true);
     this.labels = [];
     this.hits = [];
@@ -510,18 +534,29 @@ export class GameMenu {
    * A list with a cursor (scrolled so the cursor shows); records the labels for the snapshot. Rows are
    * tappable: `onTap` (default: the main list's select-then-act); arrows scroll a list too long to show.
    */
-  private drawList(labels: string[], cursor: number, x: number, y: number, rows = ROWS, active = true, onTap?: (i: number) => MenuRequest[]): void {
+  private drawList(
+    labels: string[],
+    cursor: number,
+    x: number,
+    y: number,
+    rows = ROWS,
+    active = true,
+    onTap?: (i: number) => MenuRequest[],
+    fit?: { width: number; arrowX: number },
+  ): void {
     if (active) this.labels = labels;
     const first = Math.max(0, Math.min(cursor - rows + 1, labels.length - rows));
     const tap = onTap ?? ((i: number) => this.tapTop(i));
     labels.slice(first, first + rows).forEach((l, i) => {
       const on = first + i === cursor;
       const t = this.text(x, y + i * ROW_H, `${on && active ? '>' : ' '} ${l}`, on && active ? UI.accentText : UI.text);
+      // A column beside another (the Quests page): a label too wide for it ends in an ellipsis instead of running on.
+      if (fit) ellipsize(t, fit.width);
       this.hit(x - 2, y + i * ROW_H - 1, Math.max(60, Math.ceil(t.width) + 6), ROW_H, () => tap(first + i));
     });
     if (labels.length === 0) this.text(x, y, '  (nothing)', UI.dimText);
     if (labels.length > rows && active) {
-      const ax = x + Math.max(...labels.map((l) => l.length)) * charPx() + 14;
+      const ax = fit?.arrowX ?? x + Math.max(...labels.map((l) => l.length)) * charPx() + 14;
       this.text(ax, y, '▲', UI.accentText);
       this.text(ax, y + (rows - 1) * ROW_H, '▼', UI.accentText);
       this.hit(ax - 4, y - 2, 16, 16, () => this.move(-1));
@@ -965,7 +1000,8 @@ export class GameMenu {
     const known = new Set(RPG.realm.filter(reached).map((p) => p.id));
     const area = { x: 6, y: TOP + 1, w: REALM_MAP_PX, h: REALM_MAP_PX };
     g.fillStyle(MAP_ART.labelBack, 1).fillRect(area.x, area.y, area.w, area.h);
-    this.realmOverlay.show(area, { current, known, names: Object.fromEntries(RPG.realm.map((p) => [p.id, p.name])) });
+    const f = this.fit;
+    this.realmOverlay.show({ x: f.x + area.x * f.scale, y: f.y + area.y * f.scale, w: area.w * f.scale, h: area.h * f.scale }, { current, known, names: Object.fromEntries(RPG.realm.map((p) => [p.id, p.name])) });
 
     // The legend: every place and its house; the one you are in, marked.
     const LX = area.x + area.w + 8;
@@ -1037,19 +1073,24 @@ export class GameMenu {
   }
 
   private drawQuests(): void {
+    const ctx = this.ctx!;
     const entries = this.questEntries();
-    const flags = this.ctx!.flags;
+    const flags = ctx.flags;
+    // The main quest by the chapter the Journal is on (review Nov 7, finding 4: it said "Chapter 1" in every chapter).
     const labels = entries.map((e) =>
       e.kind === 'main' ? 'Main: Chapter 1' : e.kind === 'mystery' ? `??? ${questPlace(e.q, flags)}` : `${sideQuestStatus(flags, e.q) === 'done' ? '[x] ' : ''}${e.q.title}`,
     );
-    this.drawList(labels, this.cursor, 6, TOP + 2, ROWS, this.stage === 'top');
+    // Two columns that never meet (review Nov 7, finding 3: with phone-sized text the long titles ran under the journal):
+    // the list ends before a narrow margin, where its scroll arrows sit, and the entry is read on the right. Both
+    // columns stop a row above the page's foot, which holds the hint.
+    const X = 112;
+    const fit = Math.floor((VIEW_HEIGHT - ROW_H - (TOP + 2)) / ROW_H);
+    this.drawList(labels, this.cursor, 6, TOP + 2, fit, this.stage === 'top', undefined, { width: X - 6 - 13, arrowX: X - 11 });
     if (entries.length === 1) this.text(6, TOP + 2 + 2 * ROW_H, '  No side quests yet.', UI.dimText);
     const e = entries[this.cursor] ?? entries[0]!;
-    const lines = this.questLines(e).filter((l) => !l.text.startsWith('(B to close)'));
+    const lines = this.questLines(e);
     this.journalLines = lines.map((l) => l.text);
-    const X = 112;
     const rows = this.wrap(lines, Math.floor((VIEW_WIDTH - X - 6) / charPx()));
-    const fit = ROWS + 1;
     this.scroll = Math.min(this.scroll, Math.max(0, rows.length - fit));
     rows.slice(this.scroll, this.scroll + fit).forEach((r, i) => this.text(X, TOP + 2 + i * ROW_H, r.text, r.color ?? UI.text));
     // Tap the entry to read it; while reading, tap its top or bottom half to scroll.
@@ -1062,7 +1103,8 @@ export class GameMenu {
       if (this.stage !== 'read') this.stage = 'read';
       else this.move(3);
     });
-    const hint = this.stage === 'read' ? 'Up/Down or tap: scroll' : '{Act}: read';
+    const more = rows.length > this.scroll + fit;
+    const hint = this.stage === 'read' ? `Up/Down or tap: scroll${more ? '  (more below)' : ''}` : `{Act}: read${more ? '  (more to read)' : ''}`;
     this.text(6, VIEW_HEIGHT - 12, hint, UI.dimText);
   }
 
@@ -1097,12 +1139,15 @@ export class GameMenu {
       const on = first + i === this.cursor;
       const band = levelBand(RPG, yours, f.level);
       const colour = BAND_COLOURS[band];
-      this.text(6, TOP + 26 + i * ROW_H, `${on ? '>' : ' '} Lv ${String(f.level).padStart(2)}  ${f.name}`, on ? UI.accentText : colour);
+      // The band in words too, so the colour is never the only cue; right-aligned, and the name is cut short before it
+      // (Nov 10: with Large text a long name ran into it).
+      const word = this.text(0, TOP + 26 + i * ROW_H, `${levelBandWord(band)}, ${f.won ? 'beaten' : 'escaped'}`, UI.dimText);
+      word.setX(VIEW_WIDTH - 6 - word.width);
+      const name = this.text(6, TOP + 26 + i * ROW_H, `${on ? '>' : ' '} Lv ${String(f.level).padStart(2)}  ${f.name}`, on ? UI.accentText : colour);
+      ellipsize(name, word.x - 6 - 6);
       this.hit(4, TOP + 25 + i * ROW_H, VIEW_WIDTH - 8, ROW_H, () => {
         this.cursor = first + i;
       });
-      // The band in words too, so the colour is never the only cue.
-      this.text(VIEW_WIDTH - 90, TOP + 26 + i * ROW_H, `${levelBandWord(band)}, ${f.won ? 'beaten' : 'escaped'}`, UI.dimText);
     });
   }
 }

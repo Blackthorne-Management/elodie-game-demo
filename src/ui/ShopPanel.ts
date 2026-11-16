@@ -10,6 +10,7 @@ import type { FlagStore } from '../engine/flags.ts';
 import { STAT_KEYS, bagContents, bagUsed, buy, gold, itemCount, level, partyMembers, sell, sellPrice, type ItemDef, type ShopDef } from '../engine/rpg.ts';
 import type { InputManager } from '../input/actions.ts';
 import { fillButtons } from '../input/buttonNames.ts';
+import { PageFit } from './clearOfControls.ts';
 import { textStyle } from './text.ts';
 
 const DEPTH = 6100;
@@ -30,11 +31,14 @@ export class ShopPanel {
   /** The item waiting for "Yes" (every purchase and sale is confirmed first). */
   private pending: ItemDef | null = null;
   private hits: { x: number; y: number; w: number; h: number; run: () => boolean | void }[] = [];
+  /** Where the page sits, clear of the touch controls on a sideways phone (Nov 10). */
+  private readonly fit = new PageFit();
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     const bg = scene.add.graphics();
-    bg.fillStyle(UI.boxFill, 1).fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    // Past the page's edges: drawn smaller to miss the touch controls (ui/clearOfControls.ts), it still covers the picture.
+    bg.fillStyle(UI.boxFill, 1).fillRect(-VIEW_WIDTH, -VIEW_HEIGHT, VIEW_WIDTH * 3, VIEW_HEIGHT * 3);
     bg.lineStyle(1, UI.boxBorder, 1).strokeRect(1.5, 1.5, VIEW_WIDTH - 3, VIEW_HEIGHT - 3);
     this.content = scene.add.container(0, 0);
     this.root = scene.add.container(0, 0, [bg, this.content]).setScrollFactor(0).setDepth(DEPTH).setVisible(false);
@@ -50,7 +54,8 @@ export class ShopPanel {
     this.side = 'buy';
     this.cursor = 0;
     this.pending = null;
-    this.message = 'Bonjou! What will it be?';
+    // Kreyòl only in Zetwal's shops (the phrasebook check, Nov 13: Ardencia's shops said "Bonjou!" and every land's "Mèsi!").
+    this.message = shop.city === 'zetwal' ? 'Bonjou! What will it be?' : 'Welcome! What will it be?';
     this.root.setVisible(true);
     this.draw();
   }
@@ -87,9 +92,15 @@ export class ShopPanel {
     return false;
   }
 
+  /** Where a point of the page (its own pixels) is on the screen, in game pixels (the tests tap there). */
+  pageToGame(x: number, y: number): { x: number; y: number } {
+    return this.fit.fromPage(x, y);
+  }
+
   /** A tap at a point in game pixels. Returns true when it was on Leave. */
   tap(x: number, y: number): boolean {
-    const hit = [...this.hits].reverse().find((h) => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h);
+    const at = this.fit.toPage(x, y);
+    const hit = [...this.hits].reverse().find((h) => at.x >= h.x && at.x < h.x + h.w && at.y >= h.y && at.y < h.y + h.h);
     const leave = hit?.run() === true;
     if (!leave) this.draw();
     return leave;
@@ -131,7 +142,7 @@ export class ShopPanel {
       const r = buy(flags, RPG, this.shop!, it.id);
       audio.sfx(r === 'ok' ? 'coins' : 'bump');
       this.message =
-        r === 'ok' ? `Mèsi! One ${it.name}.` : r === 'no_gold' ? 'Not enough gold.' : r === 'bag_full' ? 'Your bag is full.' : 'Not for sale.';
+        r === 'ok' ? `${this.shop!.city === 'zetwal' ? 'Mèsi!' : 'Thank you!'} One ${it.name}.` : r === 'no_gold' ? 'Not enough gold.' : r === 'bag_full' ? 'Your bag is full.' : 'Not for sale.';
     } else {
       const r = sell(flags, RPG, it.id);
       audio.sfx(r === 'ok' ? 'coins' : 'bump');
@@ -151,6 +162,7 @@ export class ShopPanel {
     const shop = this.shop;
     const flags = this.flags;
     if (!shop || !flags) return;
+    this.fit.apply(this.scene, this.root);
     this.content.removeAll(true);
     const g = this.scene.add.graphics();
     this.content.add(g);

@@ -6,7 +6,8 @@
 //    export and import a save code, the touch overlay on a phone-sized landscape viewport: the
 //    D-pad (right, then between up and right for a diagonal), tap to move and tap a person to talk.
 //    At several landscape phone sizes: the canvas, and every touch control, inside the visible
-//    viewport, no page scroll, no zoom on double taps; the full-screen toggle (desktop, iPhone help,
+//    viewport, no page scroll, no zoom on double taps, compact controls under 400 px tall and the menu page clear of
+//    every control; the full-screen toggle (desktop, iPhone help,
 //    hidden when opened from the home screen) and the manifest. Screenshots quest-fit-<w>x<h>.png.
 // 2. Anissa's hints (?hintms= shortens the wait), turning them off, and the Journal.
 // 3. The whole of Act I, Zetwal, from a new game, by the scripted route routes/zetwal-act1.json.
@@ -232,6 +233,26 @@ async function phoneFit(browser, errors) {
       await page.screenshot({ path: join(SHOT_DIR, name) });
       fitShots.push(name);
     }
+    // Under 400 px tall the controls are compact (A and B 44 px, hugging the edges); on a page the D-pad is a rail of
+    // arrows down the left edge and A over B down the right, and the page is drawn between them, touching none
+    // (Claude's call, Nov 10; the Nov 7 review's 5).
+    const compact = await page.evaluate(() => document.body.dataset.controls);
+    check(compact === (height < 400 ? 'compact' : 'full'), `the controls are ${compact} at ${width}x${height}`);
+    await page.waitForFunction(() => !window.__quest.snapshot().moving, null, { timeout: 3000 });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.__quest.snapshot().mode === 'menu', null, { timeout: 3000 });
+    const under = await page.evaluate(() => {
+      const a = window.__quest.pageToScreen(0, 0);
+      const b = window.__quest.pageToScreen(320, 180);
+      return [...document.querySelectorAll('.touch-dpad, .touch-btn, .touch-small, .fs-button')]
+        .filter((e) => getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0)
+        .filter((e) => {
+          const q = e.getBoundingClientRect();
+          return q.left < b.x - 0.5 && q.right > a.x + 0.5 && q.top < b.y - 0.5 && q.bottom > a.y + 0.5;
+        })
+        .map((e) => e.getAttribute('aria-label') ?? e.className);
+    });
+    check(under.length === 0, `the menu page lies clear of every control${under.length ? ` (under: ${under.join(', ')})` : ''}`);
     await ctx.close();
   }
 }
@@ -488,7 +509,7 @@ async function markChecks(page, sim, name) {
   const label = sim.logic.targetAhead()?.name ?? null;
   check(s.label === label, `@${name}: the name label shows ${label === null ? 'nothing' : `"${label}"`}`);
   const markers = sim.logic.markers().map((m) => m.id).sort();
-  check(JSON.stringify(s.markers) === JSON.stringify(markers), `@${name}: markers over ${markers.join(', ') || 'nothing'}`);
+  check(JSON.stringify(s.markers) === JSON.stringify(markers), `@${name}: markers over ${markers.join(', ') || 'nothing'}${JSON.stringify(s.markers) === JSON.stringify(markers) ? '' : ` (the browser shows ${s.markers.join(', ') || 'nothing'})`}`);
   if (name === 'diagonal') check(s.x === 10 && s.y === 8 && s.facing === 'up-right', 'two keys at once take diagonal steps (to 10,8)');
   if (name === 'bridge-after') {
     // `glowed`, not `glowing`: the glow lasts 3.6 s, and reading the return lines can take longer on a busy machine.
@@ -523,7 +544,9 @@ async function handleShowcase(page, seen, shots) {
       await page.keyboard.down('Shift');
     }
   }
-  await page.keyboard.press('KeyZ'); // finishes the rise (or closes it, if it had finished)
+  // A reward card that offers "Wear it now?" closes with X (keep it in the bag), as the simulator's party has it.
+  if (v.tier === 'reward' && v.wearer) check(true, `the ${v.name} card offers it to ${v.wearer}`);
+  await page.keyboard.press(v.tier === 'reward' ? 'KeyX' : 'KeyZ'); // finishes the rise (or closes it, if it had finished)
   await frames(page);
   if ((await snap(page)).mode === 'showcase') {
     const at = await page.evaluate(() => window.__quest.gameToScreen(160, 90));
@@ -1389,9 +1412,11 @@ async function main() {
     for (let i = 0; i < 16 && (await snap(ppage)).mode === 'dialogue'; i++) {
       const d = (await snap(ppage)).dialogue;
       if (d?.choices && !d.typing) {
-        // The choice box sits right-aligned just above the dialogue box (box top 120, rows 11 px).
-        const top = 120 - (d.choices.length * 11 + 6) - 2;
-        await tapGame(300, top + 3 + 5);
+        // The first choice's row, wherever the box sits (clear of the touch controls; Nov 10).
+        const c = await ppage.evaluate(() => window.__quest.choiceToScreen(0));
+        await touch('touchStart', c.x, c.y);
+        await touch('touchEnd');
+        await ppage.waitForTimeout(120);
         choicesTapped++;
       } else await tapGame(160, 150);
       await ppage.waitForTimeout(200);
@@ -1402,10 +1427,17 @@ async function main() {
     await ppage.locator('.side-map').tap();
     await ppage.waitForFunction(() => window.__quest.snapshot().menu?.tab === 'Map', null, { timeout: 3000 });
     check(true, 'tapping the minimap opens the map');
-    await tapGame(14, 8); // the Status tab
+    // The menu is a page drawn smaller beside the touch controls (Nov 10): tap it through pageToScreen.
+    const tapPage = async (x, y) => {
+      const p = await ppage.evaluate(([gx, gy]) => window.__quest.pageToScreen(gx, gy), [x, y]);
+      await touch('touchStart', p.x, p.y);
+      await touch('touchEnd');
+      await ppage.waitForTimeout(120);
+    };
+    await tapPage(14, 8); // the Status tab
     await ppage.waitForFunction(() => window.__quest.snapshot().menu?.tab === 'Status', null, { timeout: 3000 });
     check(true, 'tapping a tab opens it');
-    await tapGame(314, 8); // the X
+    await tapPage(314, 8); // the X
     await ppage.waitForFunction(() => window.__quest.snapshot().mode === 'field', null, { timeout: 3000 });
     check(true, "tapping the menu's X closes it");
     await ppage.locator('.touch-small.touch-menu').tap();
@@ -1446,15 +1478,15 @@ async function main() {
     await sp.waitForFunction(() => window.__quest.snapshot().mode === 'shop', null, { timeout: 4000 });
     check(true, 'tapping the vendor, then her lines, opens her shop');
     const gold0 = (await snap(sp)).flags.gold ?? 150;
-    await stap('gameToScreen', 60, 42 + 2 * 12 + 5); // choose the third item (the mango)
-    await stap('gameToScreen', 60, 42 + 2 * 12 + 5); // tap it again: the confirmation
+    await stap('pageToScreen', 60, 42 + 2 * 12 + 5); // choose the third item (the mango; the page's own pixels)
+    await stap('pageToScreen', 60, 42 + 2 * 12 + 5); // tap it again: the confirmation
     let shop = (await snap(sp)).shop;
     check(shop.confirming && shop.message.startsWith('Buy Ripe mango for 10 gold?'), `tapping an item twice asks first ("${shop.message}")`);
     check(((await snap(sp)).flags.gold ?? 150) === gold0, 'nothing is bought before Yes');
-    await stap('gameToScreen', 128, 124); // Yes
+    await stap('pageToScreen', 128, 124); // Yes
     shop = (await snap(sp)).shop;
     check(!shop.confirming && (await snap(sp)).flags.gold === gold0 - 10, `Yes buys it (gold ${gold0} to ${(await snap(sp)).flags.gold})`);
-    await stap('gameToScreen', 296, 8); // Leave
+    await stap('pageToScreen', 296, 8); // Leave
     await sp.waitForFunction(() => window.__quest.snapshot().mode === 'field', null, { timeout: 3000 });
     check(true, 'tapping Leave closes the shop');
     await shopCtx.close();

@@ -33,6 +33,17 @@ for browsers that cannot install, such as a chat app's (Oct 17; the choice is re
 Computers play in the browser. The dev server (`npm run dev`) skips the screen so a phone on the same Wi-Fi can
 test in the browser; `?install=1` shows it anyway, `?install=0` skips it.
 
+**What's new (Nov 16, the testers' update; Chapter 1 brought up to the main game as of Nov 14):** two new side
+quests (Z-4 The Seventh Stone, Z-5 Bread With No Debt at the harbor bakery); expression portraits on Chapter 1's
+lines; readable battles (name plates that never overlap, a turn order, labelled HP and SP, the acting fighter marked,
+first-time tips, B steps back one level); the party settles beside Gianna, companions walk up to speak, the boar
+charges out of the cane, Anissa's light; 24 different people at the festival; buttons named for the device in use;
+colour-blind cues and Reduce motion; on phones, compact controls on short sideways screens, and the dialogue box,
+pages and battle strip kept clear of the touch controls; the speaker's name over their head; reward gear offers
+"Wear it now?"; faster on older phones. **Saves carry over:** the save slot and code are the same as the Oct 22 build,
+and `tests/liveSaves.test.ts` loads every autosave that build made (`tests/fixtures/live-oct22-saves.json`) and plays
+each point of the story on to the end card, so a tester picks up where they left off.
+
 **What's new (Oct 17, from the independent review):** a festival crowd on the plaza and pilgrims on the temple
 path; the lamp night acted out (the lanterns catch, the names are read, a hooded figure slips away to the dock);
 Yari comes up from her canoe and then walks with the party; the bridge puzzle waits for the night orders; the

@@ -131,4 +131,5 @@ describe('the debate corner', () => {
       for (const r of def.rounds) expect(Object.values(r.answers).filter((a) => a.strength === 2)).toHaveLength(1);
     }
   });
+
 });

@@ -40,8 +40,10 @@ import { dirButtons } from '../input/actions.ts';
 import { currentDevice, setDevice } from '../input/buttonNames.ts';
 import { currentObjective, journalEntries, journalNotes, questForJournal } from '../engine/quests.ts';
 import { decodeSave, deleteSave, encodeSave } from '../engine/save.ts';
+import { SAVE_FALLBACKS } from '../data/saveFallbacks.ts';
 import { applySave, newGame, placeSave, toSaveData } from '../engine/state.ts';
 import { TILE_LAYERS, rectTiles, visibleLayersFor, type GameMap, type NpcPlacement, type TiledMap } from '../engine/tiledMap.ts';
+import type { FlagStore } from '../engine/flags.ts';
 import { getRuntime, saveGame, type Runtime } from '../runtime.ts';
 import { DialogueBox } from '../ui/DialogueBox.ts';
 import { HintBubble } from '../ui/HintBubble.ts';
@@ -55,12 +57,13 @@ import { battleFx, battleLoseNow, battleSnapshot, type BattleSnapshot } from './
 import { gameOverSnapshot, type GameOverSnapshot } from './GameOverScene.ts';
 import { BATTLE_AFTER_FLAG, FIGHT_RETURN_FLAG } from '../engine/game.ts';
 import type { FxKind } from './battleFx.ts';
+import { loadBattleArtBehind } from './textures.ts';
 import type { BattleResult } from '../engine/battle.ts';
 import { dialogueExtraPx, renderScale, setTextSize, textSize, textStyle } from '../ui/text.ts';
 import { itemArtKey } from '../assets.config.ts';
-import { markShown, pendingShowcases, showcaseView } from '../engine/showcase.ts';
+import { markShown, pendingShowcases, showcaseView, wearOffer } from '../engine/showcase.ts';
 import { RPG } from '../data/rpg.ts';
-import { addSharedXp, cityOf, level, partyMembers, pillarFlag } from '../engine/rpg.ts';
+import { addSharedXp, cityOf, equip, level, partyMembers, pillarFlag } from '../engine/rpg.ts';
 import { settleDebates } from '../engine/debate.ts';
 import { DEBATES } from '../data/debates.ts';
 import { closedNotes, rewardText, settleRewards } from '../engine/sideQuests.ts';
@@ -227,7 +230,13 @@ export class FieldScene extends Phaser.Scene {
   private fog: Phaser.GameObjects.Image | null = null;
   private objectSprites = new Map<string, Phaser.GameObjects.GameObject[]>();
   private markerSprites = new Map<string, Phaser.GameObjects.Image>();
+  private markerTileCache: { flags: FlagStore; version: number; era: Era; map: GameMap; tiles: ReadonlySet<string> } | null = null;
   private label!: Phaser.GameObjects.Container;
+  /** The name over whoever speaks the line on screen (the Nov 1 playtest's 17: who is who in a crowded room). */
+  private speakerTag!: Phaser.GameObjects.Container;
+  private speakerTagBg!: Phaser.GameObjects.Graphics;
+  private speakerTagText!: Phaser.GameObjects.Text;
+  private speakerTagSprite: Phaser.GameObjects.Image | null = null;
   private labelText!: Phaser.GameObjects.Text;
   /** "Press E to Echo" while standing where an Echo works. */
   private echoText!: Phaser.GameObjects.Text;
@@ -274,13 +283,26 @@ export class FieldScene extends Phaser.Scene {
   private menu!: GameMenu;
   private shopPanel!: ShopPanel;
   private showcase!: ItemShowcase;
+  /** The item on the showcase now (for its "Wear it now?" answer). */
+  private showcaseItem: string | null = null;
   /** The mode to go back to when the item showcase closes. */
   private showcaseReturn: UiMode = 'field';
   private minimap: SideMap | null = null;
   private toast!: Toast;
   private hint!: HintBubble;
   private panel!: TextPanel;
-  private mode: UiMode = 'field';
+  private uiMode: UiMode = 'field';
+  /**
+   * What the field is doing. The page's touch controls read it (<body data-play>, style.css): in a fight Ask, Echo and
+   * Menu do nothing and are hidden, and in a conversation Echo and Ask are (review Nov 7, finding 5).
+   */
+  private get mode(): UiMode {
+    return this.uiMode;
+  }
+  private set mode(next: UiMode) {
+    this.uiMode = next;
+    if (typeof document !== 'undefined') document.body.dataset.play = next;
+  }
   /** Gianna's smooth motion between tiles (engine/motion.ts). */
   private mover = new Mover();
   /** A direction tapped just before a step ended, taken as the next step. */
@@ -309,6 +331,8 @@ export class FieldScene extends Phaser.Scene {
 
   create(data: { toast?: string }): void {
     this.rt = getRuntime();
+    // The battle stances load behind the field once it is up, so they never hold the title or the first map (once).
+    loadBattleArtBehind(this.textures);
     this.mode = 'field';
     this.mover = new Mover();
     this.buffered = null;
@@ -435,6 +459,10 @@ export class FieldScene extends Phaser.Scene {
       .setDepth(6900)
       .setVisible(false);
     this.label = this.add.container(0, 0, [this.labelBg, this.labelText]).setDepth(3500).setVisible(false);
+    this.speakerTagBg = this.add.graphics();
+    this.speakerTagText = this.add.text(0, 0, '', textStyle(UI.labelText)).setOrigin(0.5, 1);
+    this.speakerTag = this.add.container(0, 0, [this.speakerTagBg, this.speakerTagText]).setDepth(3501).setVisible(false);
+    this.speakerTagSprite = null;
 
     this.dialogue = new DialogueBox(this);
     // Wordless voices: a blip at the speaker's pitch every other letter (a soft tick for narration).
@@ -463,11 +491,39 @@ export class FieldScene extends Phaser.Scene {
       snapshot: () => this.snapshot(),
       tileToScreen: (x, y) => this.tileToScreen(x, y),
       gameToScreen: (x, y) => this.gameToScreen(x, y),
+      // A point of the open page (the menu or a shop, drawn smaller beside the touch controls; Nov 10) on the screen.
+      pageToScreen: (x, y) => {
+        const page = this.mode === 'shop' ? this.shopPanel : this.mode === 'menu' ? this.menu : null;
+        const at = page ? page.pageToGame(x, y) : { x, y };
+        return this.gameToScreen(at.x, at.y);
+      },
+      choiceToScreen: (i) => {
+        const at = this.dialogue.choicePoint(i);
+        return at ? this.gameToScreen(at.x, at.y) : null;
+      },
       showItem: (id) => this.openShowcase(id),
       startBattle: (id, extra) => this.startBattle(id, extra),
       battleFx: (kind, at) => battleFx(kind, at),
       loseBattle: () => battleLoseNow(),
       rematch: () => this.rematch(),
+      goTo: (mapId, spawn) => {
+        const map = this.rt.maps[mapId];
+        if (!map || this.mode !== 'field') return false;
+        this.logic.state.player = newGame(map, spawn ?? '').player;
+        this.logic.reset(this.logic.state);
+        this.leaving = true;
+        this.scene.restart({});
+        return true;
+      },
+      stats: () => {
+        let textures = 0;
+        let texels = 0;
+        for (const key of this.textures.getTextureKeys()) {
+          textures++;
+          for (const src of this.textures.get(key).source) texels += src.width * src.height;
+        }
+        return { textures, texels, objects: this.children.length, listeners: [this.game.events, this.scale, this.events, this.input].reduce((n, em) => n + em.eventNames().reduce((m, e) => m + em.listenerCount(e), 0), 0) };
+      },
     };
     this.events.off('battle-done');
     this.events.on('battle-done', (r: BattleResult | null, then?: string) => this.afterBattle(r, then));
@@ -487,6 +543,7 @@ export class FieldScene extends Phaser.Scene {
     this.tickCrowd(delta);
     this.tickSettle(delta);
     this.tickGuide(delta);
+    this.placeSpeakerTag();
     if (this.cardArt && this.mode !== 'card') {
       this.cardArt.destroy();
       this.cardArt = null;
@@ -566,9 +623,13 @@ export class FieldScene extends Phaser.Scene {
     this.hint.hide();
     this.scene.launch('battle', { battle: id, extra });
     this.scene.pause();
+    // The battle covers the whole picture, so the field under it is not drawn until the battle ends ('battle-done',
+    // 'battle-lost'): on an older phone that halves the drawing each frame of a fight (the performance review, Nov 13).
+    this.scene.setVisible(false);
   }
 
   private afterBattle(result: BattleResult | null, then?: string): void {
+    this.scene.setVisible(true);
     // A scene may follow the fight at once: its level-ups wait until the field says otherwise (update).
     this.toast.setHeld(true);
     this.mode = 'field';
@@ -591,6 +652,7 @@ export class FieldScene extends Phaser.Scene {
    * goddess's screen opens over the paused field, and Rise restarts the field where the party now stands.
    */
   private openGameOver(count: number): void {
+    this.scene.setVisible(true);
     this.mode = 'gameover';
     this.minimap?.setVisible(false);
     this.label.setVisible(false);
@@ -634,11 +696,20 @@ export class FieldScene extends Phaser.Scene {
     this.mode = 'showcase';
     this.dialogue.conceal(true);
     this.hint.hide();
-    this.showcase.open(showcaseView(this.logic.state.flags, item), itemArtKey(item.art ?? item.id, item.kind));
+    this.showcase.open(showcaseView(this.logic.state.flags, item, RPG), itemArtKey(item.art ?? item.id, item.kind));
+    this.showcaseItem = id;
     this.rt.input.clearPresses();
   }
 
   private closeShowcase(): void {
+    // "Wear it now?" answered yes: onto the member the card named (engine/showcase.ts wearOffer).
+    const item = this.showcaseItem ? RPG.items[this.showcaseItem] : undefined;
+    if (this.showcase.wear && item) {
+      const member = wearOffer(this.logic.state.flags, RPG, item);
+      if (member && equip(this.logic.state.flags, RPG, member, item.id) === 'ok') this.toast.show(`${member.name} wears the ${item.name}.`);
+    }
+    this.showcase.wear = false;
+    this.showcaseItem = null;
     this.showcase.close();
     this.dialogue.conceal(false);
     this.mode = this.showcaseReturn;
@@ -702,8 +773,9 @@ export class FieldScene extends Phaser.Scene {
           const shop = RPG.shops[e.shop];
           if (!shop) break;
           if (this.mode === 'dialogue') this.leaveDialogueMode();
-          this.shopPanel.open(shop, this.logic.state.flags);
+          // The mode first: the page keeps clear of the touch controls the mode leaves on the screen.
           this.mode = 'shop';
+          this.shopPanel.open(shop, this.logic.state.flags);
           break;
         }
         case 'encounter':
@@ -1069,6 +1141,69 @@ export class FieldScene extends Phaser.Scene {
     this.label.setPosition(Math.round(x), Math.round(y)).setVisible(true);
   }
 
+  /**
+   * Who speaks, on the map: the sprite of the line's speaker (an actor on stage, a companion walking, a person on the
+   * map), or none for Gianna (her portrait says it) and for a voice not in view. Claude's call, Nov 4.
+   */
+  private speakerSprite(id: string): Phaser.GameObjects.Image | null {
+    if (id === 'gianna' || id === 'player') return null;
+    // An actor on stage by name, or by look (a scene's own name for a walk-on, such as the Hearing's `lo_c`).
+    // Or by the speaker's portrait, when it names the actor's look (Sayo's agent speaks as `sayo_agent`, looks `echo_agent`).
+    const portrait = this.logic.content.speakers[id]?.portrait;
+    const staged =
+      this.stageActors.get(id) ??
+      this.stageActors.get(`npc:${id}`) ??
+      [...this.stageActors.values()].find((a) => a.look === id) ??
+      (portrait ? [...this.stageActors.values()].find((a) => a.look === portrait) : undefined);
+    if (staged) return staged.sprite;
+    const walking = this.partyLine().find(({ look }) => look === id || (id === 'anissa' && look === ANISSA_GLOW.look));
+    if (walking) return walking.f.sprite;
+    // A person on the map: by their id, else by their look (the court's `al_regent` speaks as `regent`).
+    const npcs = this.logic.npcs();
+    const person = npcs.find((n) => n.npc === id) ?? npcs.find((n) => this.logic.content.npcs[n.npc]?.look === id);
+    return person ? (this.npcSprites.get(person.objectId) ?? null) : null;
+  }
+
+  private showSpeakerTag(id: string | null, name: string): void {
+    const sprite = id && name ? this.speakerSprite(id) : null;
+    if (!sprite || !sprite.visible || sprite.alpha < 0.2) {
+      this.hideSpeakerTag();
+      return;
+    }
+    this.speakerTagText.setText(name);
+    const w = Math.ceil(this.speakerTagText.width) + 6;
+    const h = Math.ceil(this.speakerTagText.height) + 2;
+    this.speakerTagBg.clear().fillStyle(UI.labelFill, UI.labelAlpha).fillRect(-w / 2, -h, w, h);
+    this.speakerTagBg.lineStyle(1, UI.boxBorder, 0.8).strokeRect(-w / 2 + 0.5, -h + 0.5, w - 1, h - 1);
+    this.speakerTagSprite = sprite;
+    this.speakerTag.setVisible(true);
+    this.placeSpeakerTag();
+    // The facing label would sit in the same place: one name at a time.
+    this.label.setVisible(false);
+  }
+
+  private hideSpeakerTag(): void {
+    this.speakerTagSprite = null;
+    this.speakerTag?.setVisible(false);
+  }
+
+  /** Over the speaker's head, kept on screen (the camera eases while a line is up). */
+  private placeSpeakerTag(): void {
+    const sprite = this.speakerTagSprite;
+    if (!sprite) return;
+    const cam = this.cameras.main;
+    const w = Math.ceil(this.speakerTagText.width) + 6;
+    const h = Math.ceil(this.speakerTagText.height) + 2;
+    const top = sprite.y - sprite.displayHeight - CHARACTER_LABEL_GAP;
+    // A speaker who has walked out of view has no tag (it would hang at the screen's edge over nobody).
+    const inView = sprite.visible && sprite.scene && sprite.x >= cam.scrollX && sprite.x <= cam.scrollX + VIEW_WIDTH && sprite.y > cam.scrollY && top < cam.scrollY + VIEW_HEIGHT;
+    this.speakerTag.setVisible(!!inView);
+    if (!inView) return;
+    const x = Phaser.Math.Clamp(sprite.x, cam.scrollX + w / 2 + 1, cam.scrollX + VIEW_WIDTH - w / 2 - 1);
+    const y = Math.max(top, cam.scrollY + h + 1);
+    this.speakerTag.setPosition(Math.round(x), Math.round(y));
+  }
+
   /** How tall an NPC's frames are (a grown-up's art sheet, such as Azzy's, can be taller than the standard cell). */
   private npcHeight(objectId: number): number {
     return this.npcSprites.get(objectId)?.height ?? CHARACTER_HEIGHT;
@@ -1093,6 +1228,21 @@ export class FieldScene extends Phaser.Scene {
     const art = o.kind ? OBJECT_ART[o.kind] : undefined;
     const bottom = (o.area.y + o.area.height) * TILE_SIZE;
     return art ? Math.min(o.area.y * TILE_SIZE, bottom - art.rows.length) : o.area.y * TILE_SIZE;
+  }
+
+  /**
+   * The tiles under a marker (engine/game.ts markers, its x rounded), for the guide's pointer, which asks every frame.
+   * markers() plays every conversation on the map through to see who has news, so it is worked out again only when
+   * the flags, the era or the map have changed (the performance review, Nov 13: on the bazaars it took a quarter of
+   * an older phone's time). The answer is the same as working it out every frame.
+   */
+  private markerTiles(): ReadonlySet<string> {
+    const flags = this.logic.state.flags;
+    const c = this.markerTileCache;
+    if (c && c.flags === flags && c.version === flags.version && c.era === this.logic.era && c.map === this.logic.map) return c.tiles;
+    const tiles = new Set(this.logic.markers().map((m) => `${Math.round(m.pos.x)},${m.pos.y}`));
+    this.markerTileCache = { flags, version: flags.version, era: this.logic.era, map: this.logic.map, tiles };
+    return tiles;
   }
 
   /** Markers over people with something new to say and things not used yet (engine/game.ts markers). */
@@ -1123,6 +1273,7 @@ export class FieldScene extends Phaser.Scene {
       this.tweens.add({ targets: sprite, y: sprite.y - 3, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       this.markerSprites.set(m.id, sprite);
     }
+    for (const sprite of this.markerSprites.values()) sprite.setVisible(this.mode !== 'dialogue');
   }
 
   /** Once back in the field after an Echo change, the changed objects glow for a few seconds. */
@@ -1427,8 +1578,16 @@ export class FieldScene extends Phaser.Scene {
       }
       const bob = Math.round(Math.sin(this.guideT / 220 + (kind === 'side' ? 1.5 : 0)) * 2);
       // Above the "!" or sparkle when the stop already has one.
-      const lift = this.markerSprites.size > 0 && this.logic.markers().some((m) => Math.round(m.pos.x) === way.at.x && m.pos.y === way.at.y) ? 10 : 0;
-      p.mark.setPosition(foot.x, foot.y - CHARACTER_HEIGHT - 6 - lift + bob).setVisible(true);
+      const lift = this.markerSprites.size > 0 && this.markerTiles().has(`${way.at.x},${way.at.y}`) ? 10 : 0;
+      // Above heads, never on a person (the Nov 7 review's 13): it rises over anyone whose picture it would touch.
+      let y = foot.y - CHARACTER_HEIGHT - 6 - lift;
+      const people = this.peopleBounds();
+      for (let i = 0; i < 4; i++) {
+        const under = people.find((b) => foot.x + 5 > b.x && foot.x - 5 < b.right && y + 4 > b.y && y - 5 < b.bottom);
+        if (!under) break;
+        y = under.y - 4;
+      }
+      p.mark.setPosition(foot.x, Math.max(view.y + 6, y + bob)).setVisible(true);
       return;
     }
     p.mark?.setVisible(false);
@@ -1448,10 +1607,41 @@ export class FieldScene extends Phaser.Scene {
     const half = { x: VIEW_WIDTH / 2 - pad, y: VIEW_HEIGHT / 2 - pad };
     const t = Math.min(dx !== 0 ? half.x / Math.abs(dx) : Infinity, dy !== 0 ? half.y / Math.abs(dy) : Infinity);
     const nudge = 1 + Math.sin(this.guideT / 260) * 0.02;
+    let ax = cx + dx * t * nudge;
+    let ay = cy + dy * t * nudge;
+    // Never on a person (the Nov 7 review's 13: in the guild vault it sat on Gianna's head, the party standing at the
+    // top of a small map): it slides along its edge of the screen to the nearest place clear of everyone.
+    const people = this.peopleBounds();
+    const onPerson = (x: number, y: number) => people.some((b) => x + 8 > b.x && x - 8 < b.right && y + 8 > b.y && y - 8 < b.bottom);
+    if (onPerson(ax, ay)) {
+      const sideways = Math.abs(dx) * t >= half.x - 0.5; // on the left or right edge: slide up or down
+      for (let k = 1; k <= 16; k++) {
+        const step = Math.ceil(k / 2) * 8 * (k % 2 === 0 ? -1 : 1);
+        const x = sideways ? ax : Math.min(view.right - pad, Math.max(view.x + pad, ax + step));
+        const y = sideways ? Math.min(view.bottom - pad, Math.max(view.y + pad, ay + step)) : ay;
+        if (!onPerson(x, y)) {
+          ax = x;
+          ay = y;
+          break;
+        }
+      }
+    }
     p.arrow
-      .setPosition(Math.round(cx + dx * t * nudge), Math.round(cy + dy * t * nudge))
-      .setRotation(Math.atan2(dy, dx))
+      .setPosition(Math.round(ax), Math.round(ay))
+      .setRotation(Math.atan2(goal.y - ay, goal.x - ax))
       .setVisible(true);
+  }
+
+  /** Where the people on the map stand now (Gianna, her party, the map's people, the crowd), as their pictures' bounds. */
+  private peopleBounds(): Phaser.Geom.Rectangle[] {
+    const party = [this.follower, this.yari];
+    const sprites: Phaser.GameObjects.Image[] = [
+      this.player,
+      ...party.flatMap((f) => (f ? [f.sprite] : [])),
+      ...this.npcSprites.values(),
+      ...this.crowd.map((c) => c.sprite),
+    ];
+    return sprites.filter((sp) => sp?.visible).map((sp) => sp.getBounds());
   }
 
   // ---- The crowd -----------------------------------------------------------------------------
@@ -1643,7 +1833,8 @@ export class FieldScene extends Phaser.Scene {
 
   /** Where the dialogue box's name tab begins, on the screen (ui/DialogueBox.ts: 58 px plus the text size's extra, 2 px off the bottom, a 13 px tab). */
   private dialogueBoxTop(): number {
-    return VIEW_HEIGHT - 58 - dialogueExtraPx() - 2 - 13;
+    // The box is taller where it was narrowed to miss the touch controls (ui/DialogueBox.ts layout).
+    return Math.min(VIEW_HEIGHT - 58 - dialogueExtraPx() - 2 - 13, this.dialogue.visible ? this.dialogue.top : VIEW_HEIGHT);
   }
 
   /**
@@ -1951,6 +2142,9 @@ export class FieldScene extends Phaser.Scene {
     // The party steps beside Gianna as the scene begins, so everyone in it can be seen.
     this.settleParty(false);
     this.label.setVisible(false);
+    // No "!" or sparkles over a conversation (Nov 7: Jarl Ingrid's "!" sat on Samira's name while she spoke); the end of the
+    // conversation syncs them again (leaveDialogueMode).
+    for (const sprite of this.markerSprites.values()) sprite.setVisible(false);
     this.labelKey = '';
     this.lastFx = undefined;
     this.showDialogueView();
@@ -1958,8 +2152,12 @@ export class FieldScene extends Phaser.Scene {
 
   private leaveDialogueMode(): void {
     this.dialogue.hide();
+    this.hideSpeakerTag();
     this.clearStage();
+    // What the conversation changed can give someone else something new to say (Nov 4: the horn opens the lawspeaker's
+    // S-2 offer, and her "!" only came at the next map sync): the markers follow at once.
     this.mode = this.logic.mode === 'card' ? 'card' : 'field';
+    this.syncMarkers();
     this.rt.input.clearPresses();
     if (this.talkingTo) {
       const n = this.talkingTo;
@@ -1977,10 +2175,12 @@ export class FieldScene extends Phaser.Scene {
       if (view.fx && view.fx !== this.lastFx) this.playFx(view.fx);
       this.lastFx = view.fx;
       this.dialogue.show(view, this.logic.state.settings.textSpeed);
+      this.showSpeakerTag(view.speaker?.id ?? null, view.speaker?.name ?? '');
     };
     if (view.stage && view.stage.length > 0) {
       // Act the scene out first (the box steps aside), then the line.
       this.dialogue.hide();
+      this.hideSpeakerTag();
       this.perform(view.stage, show);
     } else show();
   }
@@ -2405,6 +2605,7 @@ export class FieldScene extends Phaser.Scene {
       mapId: this.map.id,
       era: this.logic.era,
       journal: () => this.journalLines(),
+      chapterTitle: () => questForJournal(CHAPTERS, this.map.id, this.logic.state.flags)?.title,
       system: () => this.menuItems(),
       maps: this.logic.maps,
       rawMap: (id) => (this.cache.tilemap.get(tilemapKey(id)) as { data?: TiledMap } | undefined)?.data,
@@ -2541,7 +2742,7 @@ export class FieldScene extends Phaser.Scene {
         const result = decodeSave(code);
         if (!result.ok) return result.error;
         // An older code whose spot has changed lands at the map's nearest way in (engine/state.ts placeSave).
-        const placed = placeSave(result.data, this.rt.maps);
+        const placed = placeSave(result.data, this.rt.maps, SAVE_FALLBACKS);
         if (!placed) return 'That save code points at a place this version does not have.';
         applySave(this.logic.state, placed.data);
         this.logic.reset();
@@ -2622,6 +2823,10 @@ declare global {
       snapshot: () => FieldSnapshot;
       tileToScreen: (x: number, y: number) => { x: number; y: number };
       gameToScreen: (x: number, y: number) => { x: number; y: number };
+      /** A point of the open page (the menu or a shop: its own 320 x 180 pixels) on the screen. */
+      pageToScreen: (x: number, y: number) => { x: number; y: number };
+      /** The middle of a dialogue choice's row on the screen, or null when no choice is shown. */
+      choiceToScreen: (i: number) => { x: number; y: number } | null;
       /** Show an item's showcase (display only: it changes no flags), for screenshots of every tier. */
       showItem: (id: string) => void;
       /** Start a battle by id (the smoke test plays the first battle without walking to it). */
@@ -2633,6 +2838,10 @@ declare global {
       loseBattle: () => boolean;
       /** After an accidental Game Over on the scripted route: fight the last fight again from here. */
       rematch: () => boolean;
+      /** The performance check (docs/quest/reviews/2026-11-13-performance.md): stand on a map's spawn (from the field). */
+      goTo: (mapId: string, spawn?: string) => boolean;
+      /** The performance check: textures held (and their pixels), objects on the field, listeners on the game, scale, scene and input events. */
+      stats: () => { textures: number; texels: number; objects: number; listeners: number };
     };
   }
 }
